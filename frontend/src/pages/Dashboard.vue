@@ -55,8 +55,7 @@ onUnmounted(() => {
           <AppIcon :size="18" name="home"/>
         </span>
         <div>
-          <h1 class="text-lg font-semibold tracking-tight md:text-xl">Home Dashboard</h1>
-          <p class="text-xs text-white/45">Control center</p>
+          <h1 class="text-lg font-semibold tracking-tight md:text-xl">Home</h1>
         </div>
       </div>
       <span
@@ -85,7 +84,7 @@ onUnmounted(() => {
       </section>
 
       <section class="glass-section motion-fade-in">
-        <p class="glass-section-label mb-4">Smart Home</p>
+        <p class="glass-section-label mb-4">Home</p>
         <HomeKitPanel/>
       </section>
 
@@ -95,13 +94,13 @@ onUnmounted(() => {
             :is-loading="jellyfinStore.suggestedLoading"
             :items="jellyfinStore.suggestedWatches"
             :error="jellyfinStore.suggestedError"
-            title="Suggested Watches"
+            title="Suggested watches"
         />
         <JellyfinCarousel
             :is-loading="jellyfinStore.recentLoading"
             :items="jellyfinStore.recentlyAdded"
             :error="jellyfinStore.recentError"
-            title="Recently Added"
+            title="Recently added"
         />
       </section>
 
