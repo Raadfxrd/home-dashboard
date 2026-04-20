@@ -7,8 +7,14 @@ defineProps({
 </script>
 
 <template>
-  <div
-      class="media-card motion-fade-in overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/[0.085]">
+  <component
+      :is="item.url ? 'a' : 'div'"
+      :href="item.url || undefined"
+      :target="item.url ? '_blank' : undefined"
+      :rel="item.url ? 'noopener noreferrer' : undefined"
+      :class="item.url ? 'cursor-pointer hover:-translate-y-0.5 hover:bg-white/[0.085]' : 'cursor-default'"
+      class="media-card motion-fade-in overflow-hidden transition-all duration-300"
+  >
     <div class="relative aspect-[2/3] bg-white/5">
       <img
           v-if="item.poster"
@@ -39,7 +45,7 @@ defineProps({
       <div v-if="item.year" class="text-[10px] text-white/30 mt-0.5">{{ item.year }}</div>
     </div>
 
-  </div>
+  </component>
 </template>
 
 <style scoped>

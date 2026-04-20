@@ -83,6 +83,10 @@ function buildPosterUrl(itemId) {
 	return `${JELLYFIN_URL}/Items/${itemId}/Images/Primary${apiKeyQuery}`;
 }
 
+function buildDetailsUrl(itemId) {
+	return `${JELLYFIN_URL}/web/index.html#!/details?id=${encodeURIComponent(itemId)}`;
+}
+
 async function getResolvedUserId() {
 	if (resolvedUserId) {
 		logJellyfin('user.resolve.cache_hit', {userId: maskIdentifier(resolvedUserId)});
@@ -139,6 +143,7 @@ function mapItems(items = []) {
 		id: item.Id,
 		title: item.Name,
 		poster: buildPosterUrl(item.Id),
+		url: buildDetailsUrl(item.Id),
 		type: item.Type,
 		year: item.ProductionYear || null,
 		progress: 0,
@@ -292,6 +297,7 @@ router.get('/continue', async (_req, res) => {
 				id: item.Id,
 				title: item.Name,
 				poster: buildPosterUrl(item.Id),
+				url: buildDetailsUrl(item.Id),
 				progress,
 				type: item.Type,
 			};
