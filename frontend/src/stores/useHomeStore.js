@@ -7,6 +7,13 @@ export const useHomeStore = defineStore('home', () => {
 	const isLoading = ref(false);
 	const error = ref(null);
 	const notifications = ref([]);
+	const serviceStatus = ref({
+		prowlarr: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
+		indexer: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
+		downloadClient: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
+		indexers: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
+		downloadClients: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
+	});
 
 	function notify(type, message) {
 		const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -101,5 +108,43 @@ export const useHomeStore = defineStore('home', () => {
 		}
 	}
 
-	return {devices, isLoading, error, notifications, fetchDevices, toggleDevice, setBrightness, setColor};
+	async function fetchServiceStatus() {
+		try {
+			const payload = await get('/home/services-status');
+			serviceStatus.value = {
+				prowlarr: payload?.prowlarr || serviceStatus.value.prowlarr,
+				indexer: payload?.indexer || serviceStatus.value.indexer,
+				downloadClient: payload?.downloadClient || serviceStatus.value.downloadClient,
+				indexers: payload?.indexers || serviceStatus.value.indexers,
+				downloadClients: payload?.downloadClients || serviceStatus.value.downloadClients,
+			};
+		} catch (err) {
+			serviceStatus.value = {
+				...serviceStatus.value,
+				indexer: {
+					...serviceStatus.value.indexer,
+					online: false,
+					error: err.response?.data?.error || err.message || 'Status check failed',
+				},
+				downloadClient: {
+					...serviceStatus.value.downloadClient,
+					online: false,
+					error: err.response?.data?.error || err.message || 'Status check failed',
+				},
+			};
+		}
+	}
+
+	return {
+		devices,
+		isLoading,
+		error,
+		notifications,
+		serviceStatus,
+		fetchDevices,
+		toggleDevice,
+		setBrightness,
+		setColor,
+		fetchServiceStatus,
+	};
 });

@@ -6,6 +6,17 @@ const router = express.Router();
 const HOMEBRIDGE_URL = process.env.HOMEBRIDGE_URL || 'http://localhost:8581';
 const HB_USERNAME = process.env.HOMEBRIDGE_USERNAME || 'admin';
 const HB_PASSWORD = process.env.HOMEBRIDGE_PASSWORD || 'admin';
+const INDEXER_URL = process.env.INDEXER_URL || '';
+const INDEXER_API_KEY = process.env.INDEXER_API_KEY || '';
+const INDEXER_STATUS_PATH = process.env.INDEXER_STATUS_PATH || '/';
+const QBITTORRENT_URL = process.env.QBITTORRENT_URL || '';
+const QBITTORRENT_USERNAME = process.env.QBITTORRENT_USERNAME || '';
+const QBITTORRENT_PASSWORD = process.env.QBITTORRENT_PASSWORD || '';
+const QBITTORRENT_STATUS_PATH = process.env.QBITTORRENT_STATUS_PATH || '/api/v2/app/version';
+const NZBGET_URL = process.env.NZBGET_URL || '';
+const NZBGET_USERNAME = process.env.NZBGET_USERNAME || '';
+const NZBGET_PASSWORD = process.env.NZBGET_PASSWORD || '';
+const NZBGET_STATUS_PATH = process.env.NZBGET_STATUS_PATH || '/';
 
 let homebridgeToken = null;
 let tokenExpiry = 0;
@@ -305,6 +316,327 @@ function classifyAccessory(acc) {
 	return 'sensor';
 }
 
+function buildServiceUrl(baseUrl, statusPath) {
+	const base = String(baseUrl || '').trim().replace(/\/+$/, '');
+	if (!base) return null;
+
+	const rawPath = String(statusPath || '/').trim();
+	if (!rawPath) return base;
+	if (/^https?:\/\//i.test(rawPath)) return rawPath;
+	const normalizedPath = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+	return `${base}${normalizedPath}`;
+}
+
+async function probeService(name, {baseUrl, statusPath, apiKey}) {
+	const targetUrl = buildServiceUrl(baseUrl, statusPath);
+	if (!targetUrl) {
+		return {
+			name,
+			configured: false,
+			online: false,
+			statusCode: null,
+			latencyMs: null,
+			error: 'Not configured',
+		};
+	}
+
+	const headers = {};
+	if (apiKey) {
+		headers['X-Api-Key'] = apiKey;
+		headers['x-api-key'] = apiKey;
+	}
+
+	const startedAt = Date.now();
+	try {
+		const response = await axios.get(targetUrl, {
+			headers,
+			timeout: 5000,
+			validateStatus: () => true,
+		});
+		const online = response.status >= 200 && response.status < 400;
+
+		return {
+			name,
+			configured: true,
+			online,
+			statusCode: response.status,
+			latencyMs: Date.now() - startedAt,
+			error: online ? null : `HTTP ${response.status}`,
+		};
+	} catch (err) {
+		return {
+			name,
+			configured: true,
+			online: false,
+			statusCode: err.response?.status || null,
+			latencyMs: Date.now() - startedAt,
+			error: err.message,
+		};
+	}
+}
+
+function buildSummary(items = [], configured = false, online = false) {
+	const total = items.length;
+	const enabled = items.filter((item) => item.enabled !== false).length;
+	const onlineCount = items.filter((item) => item.online !== false).length;
+	return {
+		configured,
+		online,
+		total,
+		enabled,
+		onlineCount,
+		items,
+	};
+}
+
+async function tryFetchProwlarrList(baseUrl, apiKey, path) {
+	const url = buildServiceUrl(baseUrl, path);
+	if (!url) return [];
+
+	const headers = {};
+	if (apiKey) {
+		headers['X-Api-Key'] = apiKey;
+		headers['x-api-key'] = apiKey;
+	}
+
+	try {
+		const response = await axios.get(url, {
+			headers,
+			timeout: 5000,
+			validateStatus: () => true,
+		});
+		if (response.status < 200 || response.status >= 400 || !Array.isArray(response.data)) {
+			return [];
+		}
+		return response.data;
+	} catch (_err) {
+		return [];
+	}
+}
+
+function indexStatusFor(statuses, indexerId) {
+	return statuses.find((item) => item?.indexerId === indexerId || item?.id === indexerId) || null;
+}
+
+function toOnlineState(entity, statusEntry) {
+	if (!statusEntry) {
+		return Boolean(entity?.enable ?? entity?.enabled ?? true);
+	}
+
+	const statusText = String(statusEntry.status || '').toLowerCase();
+	if (statusText.includes('error') || statusText.includes('failed')) {
+		return false;
+	}
+	if (statusText.includes('ok') || statusText.includes('healthy') || statusText.includes('available')) {
+		return true;
+	}
+
+	if (statusEntry.lastErrorMessage || statusEntry.message) {
+		return false;
+	}
+
+	return Boolean(entity?.enable ?? entity?.enabled ?? true);
+}
+
+function mapProbeToClientItem(service, fallbackName) {
+	if (!service?.configured) {
+		return null;
+	}
+
+	return {
+		id: service.name,
+		name: fallbackName,
+		enabled: true,
+		online: Boolean(service.online),
+		error: service.error || null,
+	};
+}
+
+async function probeQbittorrent() {
+	const targetUrl = buildServiceUrl(QBITTORRENT_URL, QBITTORRENT_STATUS_PATH);
+	if (!targetUrl) {
+		return {
+			name: 'qbittorrent',
+			configured: false,
+			online: false,
+			statusCode: null,
+			latencyMs: null,
+			error: 'Not configured',
+		};
+	}
+
+	if (!QBITTORRENT_USERNAME || !QBITTORRENT_PASSWORD) {
+		return {
+			name: 'qbittorrent',
+			configured: false,
+			online: false,
+			statusCode: null,
+			latencyMs: null,
+			error: 'Missing credentials',
+		};
+	}
+
+	const startedAt = Date.now();
+	const loginUrl = buildServiceUrl(QBITTORRENT_URL, '/api/v2/auth/login');
+
+	try {
+		const loginBody = new URLSearchParams({
+			username: QBITTORRENT_USERNAME,
+			password: QBITTORRENT_PASSWORD,
+		});
+
+		const loginResponse = await axios.post(loginUrl, loginBody.toString(), {
+			headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+			timeout: 5000,
+			validateStatus: () => true,
+		});
+
+		if (loginResponse.status < 200 || loginResponse.status >= 400) {
+			return {
+				name: 'qbittorrent',
+				configured: true,
+				online: false,
+				statusCode: loginResponse.status,
+				latencyMs: Date.now() - startedAt,
+				error: `Login HTTP ${loginResponse.status}`,
+			};
+		}
+
+		const cookie = (loginResponse.headers['set-cookie'] || []).map((value) => value.split(';')[0]).join('; ');
+		const statusResponse = await axios.get(targetUrl, {
+			headers: cookie ? {Cookie: cookie} : {},
+			timeout: 5000,
+			validateStatus: () => true,
+		});
+
+		const online = statusResponse.status >= 200 && statusResponse.status < 400;
+		return {
+			name: 'qbittorrent',
+			configured: true,
+			online,
+			statusCode: statusResponse.status,
+			latencyMs: Date.now() - startedAt,
+			error: online ? null : `HTTP ${statusResponse.status}`,
+		};
+	} catch (err) {
+		return {
+			name: 'qbittorrent',
+			configured: true,
+			online: false,
+			statusCode: err.response?.status || null,
+			latencyMs: Date.now() - startedAt,
+			error: err.message,
+		};
+	}
+}
+
+async function probeNzbget() {
+	const targetUrl = buildServiceUrl(NZBGET_URL, NZBGET_STATUS_PATH);
+	if (!targetUrl) {
+		return {
+			name: 'nzbget',
+			configured: false,
+			online: false,
+			statusCode: null,
+			latencyMs: null,
+			error: 'Not configured',
+		};
+	}
+
+	if (!NZBGET_USERNAME || !NZBGET_PASSWORD) {
+		return {
+			name: 'nzbget',
+			configured: false,
+			online: false,
+			statusCode: null,
+			latencyMs: null,
+			error: 'Missing credentials',
+		};
+	}
+
+	const startedAt = Date.now();
+	try {
+		const response = await axios.get(targetUrl, {
+			auth: {
+				username: NZBGET_USERNAME,
+				password: NZBGET_PASSWORD,
+			},
+			timeout: 5000,
+			validateStatus: () => true,
+		});
+
+		const online = response.status >= 200 && response.status < 400;
+		return {
+			name: 'nzbget',
+			configured: true,
+			online,
+			statusCode: response.status,
+			latencyMs: Date.now() - startedAt,
+			error: online ? null : `HTTP ${response.status}`,
+		};
+	} catch (err) {
+		return {
+			name: 'nzbget',
+			configured: true,
+			online: false,
+			statusCode: err.response?.status || null,
+			latencyMs: Date.now() - startedAt,
+			error: err.message,
+		};
+	}
+}
+
+function mergeClientLists(primary = [], secondary = []) {
+	const merged = [];
+	const seen = new Set();
+
+	for (const item of [...primary, ...secondary]) {
+		if (!item) continue;
+		const key = String(item.name || item.id || '').toLowerCase();
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		merged.push(item);
+	}
+
+	return merged;
+}
+
+async function fetchProwlarrDetails() {
+	const prowlarr = await probeService('prowlarr', {
+		baseUrl: INDEXER_URL,
+		statusPath: INDEXER_STATUS_PATH,
+		apiKey: INDEXER_API_KEY,
+	});
+
+	if (!prowlarr.configured) {
+		return {
+			prowlarr,
+			indexers: buildSummary([], false, false),
+		};
+	}
+
+	const [rawIndexers, rawIndexerStatuses] = await Promise.all([
+		tryFetchProwlarrList(INDEXER_URL, INDEXER_API_KEY, '/api/v1/indexer'),
+		tryFetchProwlarrList(INDEXER_URL, INDEXER_API_KEY, '/api/v1/indexerstatus'),
+	]);
+
+	const indexers = rawIndexers.map((indexer) => {
+		const statusEntry = indexStatusFor(rawIndexerStatuses, indexer.id);
+		return {
+			id: indexer.id,
+			name: indexer.name || indexer.implementationName || `Indexer ${indexer.id}`,
+			enabled: Boolean(indexer.enable ?? indexer.enabled ?? true),
+			online: toOnlineState(indexer, statusEntry),
+			error: statusEntry?.lastErrorMessage || statusEntry?.message || null,
+		};
+	});
+
+	return {
+		prowlarr,
+		indexers: buildSummary(indexers, true, prowlarr.online),
+	};
+}
+
 async function fetchHomebridgeDevices() {
 	logHomebridge('accessories.fetch_start');
 	const token = await getToken();
@@ -493,6 +825,47 @@ router.post('/color', async (req, res) => {
 		logHomebridge('accessory.color_error', {deviceId, ...getErrorDetails(err)});
 		res.status(502).json({error: 'Failed to set color'});
 	}
+});
+
+router.get('/services-status', async (_req, res) => {
+	const [prowlarrDetails, qbittorrentClient, nzbgetClient] = await Promise.all([
+		fetchProwlarrDetails(),
+		probeQbittorrent(),
+		probeNzbget(),
+	]);
+
+	const explicitClients = mergeClientLists([], [
+		mapProbeToClientItem(qbittorrentClient, 'qBittorrent'),
+		mapProbeToClientItem(nzbgetClient, 'NZBGet'),
+	]);
+
+	const downloadClientsSummary = buildSummary(
+		explicitClients,
+		explicitClients.length > 0,
+		explicitClients.some((item) => item.online)
+	);
+
+	res.json({
+		prowlarr: prowlarrDetails.prowlarr,
+		indexers: prowlarrDetails.indexers,
+		downloadClients: downloadClientsSummary,
+		// Backward-compatible summary keys
+		indexer: {
+			configured: prowlarrDetails.prowlarr.configured,
+			online: prowlarrDetails.prowlarr.online,
+			statusCode: prowlarrDetails.prowlarr.statusCode,
+			latencyMs: prowlarrDetails.prowlarr.latencyMs,
+			error: prowlarrDetails.prowlarr.error,
+		},
+		downloadClient: {
+			name: 'downloadClient',
+			configured: downloadClientsSummary.configured,
+			online: downloadClientsSummary.online,
+			statusCode: null,
+			latencyMs: null,
+			error: downloadClientsSummary.configured ? null : 'Not configured',
+		},
+	});
 });
 
 module.exports = router;

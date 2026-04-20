@@ -18,6 +18,23 @@ const {coords, isLoading: geoLoading} = useGeolocation();
 
 const clock = ref('');
 const clockInterval = ref(null);
+const serviceStatusInterval = ref(null);
+
+function statusLabel(service) {
+  if (!service?.configured) return 'Not configured';
+  if (service.online) return 'Online';
+  return service.error || 'Offline';
+}
+
+function statusChipClass(online, configured = true) {
+  if (!configured) return 'border-white/20 text-white/70';
+  return online ? 'border-emerald-300/35 text-emerald-100' : 'border-amber-300/35 text-amber-100';
+}
+
+function summaryLabel(summary, label) {
+  if (!summary?.configured) return `${label}: Not configured`;
+  return `${label}: ${summary.onlineCount}/${summary.total} online`;
+}
 
 function updateClock() {
   const now = new Date();
@@ -36,12 +53,18 @@ onMounted(() => {
 
   weatherStore.fetchAmsterdamWeather();
   homeStore.fetchDevices();
+  homeStore.fetchServiceStatus();
   jellyfinStore.fetchSuggestedWatches();
   jellyfinStore.fetchRecentlyAdded();
+
+  serviceStatusInterval.value = setInterval(() => {
+    homeStore.fetchServiceStatus();
+  }, 30000);
 });
 
 onUnmounted(() => {
   clearInterval(clockInterval.value);
+  clearInterval(serviceStatusInterval.value);
 });
 </script>
 
@@ -114,6 +137,54 @@ onUnmounted(() => {
       </section>
 
     </main>
+
+    <div class="fixed bottom-4 left-4 z-50 flex w-[min(96vw,560px)] flex-wrap gap-2">
+      <div class="group relative">
+        <div
+            :class="statusChipClass(homeStore.serviceStatus.indexers.onlineCount > 0, homeStore.serviceStatus.indexers.configured)"
+            class="glass border px-3 py-2 text-xs shadow-lg"
+        >
+          {{ summaryLabel(homeStore.serviceStatus.indexers, 'Indexers') }}
+        </div>
+        <div
+            class="absolute bottom-full left-0 mb-2 hidden w-80 max-h-64 overflow-auto rounded-xl border border-white/15 bg-[#0f1014]/95 p-2 text-xs shadow-2xl group-hover:block group-focus-within:block"
+        >
+          <div v-if="!homeStore.serviceStatus.indexers.items?.length" class="px-2 py-1 text-white/60">
+            {{ statusLabel(homeStore.serviceStatus.indexer) }}
+          </div>
+          <div v-for="item in homeStore.serviceStatus.indexers.items" :key="item.id"
+               class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5">
+            <span class="truncate text-white/85">{{ item.name }}</span>
+            <span :class="item.online ? 'text-emerald-200' : 'text-amber-200'" class="shrink-0 text-[11px]">
+              {{ item.online ? 'Online' : 'Offline' }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div class="group relative">
+        <div
+            :class="statusChipClass(homeStore.serviceStatus.downloadClients.onlineCount > 0, homeStore.serviceStatus.downloadClients.configured)"
+            class="glass border px-3 py-2 text-xs shadow-lg"
+        >
+          {{ summaryLabel(homeStore.serviceStatus.downloadClients, 'Download Clients') }}
+        </div>
+        <div
+            class="absolute bottom-full left-0 mb-2 hidden w-80 max-h-64 overflow-auto rounded-xl border border-white/15 bg-[#0f1014]/95 p-2 text-xs shadow-2xl group-hover:block group-focus-within:block"
+        >
+          <div v-if="!homeStore.serviceStatus.downloadClients.items?.length" class="px-2 py-1 text-white/60">
+            {{ statusLabel(homeStore.serviceStatus.downloadClient) }}
+          </div>
+          <div v-for="item in homeStore.serviceStatus.downloadClients.items" :key="item.id"
+               class="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5">
+            <span class="truncate text-white/85">{{ item.name }}</span>
+            <span :class="item.online ? 'text-emerald-200' : 'text-amber-200'" class="shrink-0 text-[11px]">
+              {{ item.online ? 'Online' : 'Offline' }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="fixed bottom-4 right-4 z-50 flex w-[min(92vw,320px)] flex-col gap-2">
       <div
