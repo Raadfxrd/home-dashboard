@@ -139,6 +139,31 @@ function mapItem(item, progress = 0) {
 	};
 }
 
+function normalizeRecentItem(item) {
+	if (item?.Type !== 'Episode') {
+		return mapItem(item, 0);
+	}
+
+	const seriesId = item.SeriesId || item.ParentId || item.Id;
+	const seriesLikeItem = {
+		...item,
+		Id: seriesId,
+		Name: item.SeriesName || item.Name,
+		Type: 'Series',
+	};
+	return {
+		id: seriesId,
+		title: item.SeriesName || item.Name,
+		poster: buildPosterUrl(seriesId),
+		url: buildDetailsUrl(seriesId),
+		links: buildExternalLinks(seriesLikeItem),
+		type: 'Series',
+		year: item.ProductionYear || null,
+		progress: 0,
+		_episodeName: item.Name,
+	};
+}
+
 function mapItems(items = []) {
 	return items.map((item) => mapItem(item, 0));
 }
@@ -377,7 +402,7 @@ router.get('/recent', async (_req, res) => {
 				headers: jellyfinHeaders(),
 				params: {
 					Limit: 16,
-					Fields: 'PrimaryImageAspectRatio,ProviderIds',
+					Fields: 'PrimaryImageAspectRatio,ProviderIds,SeriesId,SeriesName,ParentId',
 					Recursive: true,
 					IncludeItemTypes: 'Movie,Series,Episode',
 					EnableImages: true,
@@ -386,7 +411,7 @@ router.get('/recent', async (_req, res) => {
 			}
 		);
 
-		let items = mapItems(Array.isArray(response.data) ? response.data : response.data?.Items || []);
+		let items = (Array.isArray(response.data) ? response.data : response.data?.Items || []).map((item) => normalizeRecentItem(item));
 
 		if (!items.length) {
 			logJellyfin('recent.latest_empty_fallback_start');
@@ -398,25 +423,36 @@ router.get('/recent', async (_req, res) => {
 					SortBy: 'DateCreated',
 					SortOrder: 'Descending',
 					IncludeItemTypes: 'Movie,Series,Episode',
-					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds',
+					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,SeriesId,SeriesName,ParentId',
 					ImageTypeLimit: 1,
 					EnableImages: true,
 				},
 			});
-			items = mapItems(fallbackResponse.data?.Items || []);
+			items = (fallbackResponse.data?.Items || []).map((item) => normalizeRecentItem(item));
 			logJellyfin('recent.latest_empty_fallback_done', {
 				status: fallbackResponse.status,
 				items: items.length,
 			});
 		}
 
+		const deduped = [];
+		const seen = new Set();
+		for (const item of items) {
+			const key = item.type === 'Series' ? `series:${item.id}` : `movie:${item.id}`;
+			if (seen.has(key)) {
+				continue;
+			}
+			seen.add(key);
+			deduped.push(item);
+		}
+
 		logJellyfin('recent.fetch_success', {
 			status: response.status,
-			items: items.length,
+			items: deduped.length,
 			durationMs: Date.now() - startedAt,
 		});
 
-		res.json(items);
+		res.json(deduped);
 	} catch (err) {
 		console.error('Jellyfin recent error:', getErrorDetails(err));
 		res.status(502).json({error: 'Failed to fetch recent items'});
@@ -430,6 +466,15 @@ router.get('/library', async (req, res) => {
 
 	const typeParam = String(req.query.type || 'movies').toLowerCase();
 	const includeItemTypes = typeParam === 'shows' ? 'Series' : 'Movie';
+	const isShowQuery = typeParam === 'shows';
+	const sortByParam = String(req.query.sortBy || 'title').toLowerCase();
+	const sortOrderParam = String(req.query.sortOrder || 'asc').toLowerCase();
+	const sortBy = ({
+		title: 'SortName',
+		year: 'ProductionYear,SortName',
+		added: 'DateCreated',
+	})[sortByParam] || 'SortName';
+	const sortOrder = sortOrderParam === 'desc' ? 'Descending' : 'Ascending';
 	const startIndex = Math.max(0, parseInt(req.query.startIndex || '0', 10) || 0);
 	const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '48', 10) || 48));
 
@@ -445,9 +490,11 @@ router.get('/library', async (req, res) => {
 				Recursive: true,
 				StartIndex: startIndex,
 				Limit: limit,
-				SortBy: 'SortName',
-				SortOrder: 'Ascending',
+				SortBy: sortBy,
+				SortOrder: sortOrder,
 				IncludeItemTypes: includeItemTypes,
+				ExcludeItemTypes: isShowQuery ? undefined : 'BoxSet,CollectionFolder',
+				Filters: isShowQuery ? undefined : 'IsNotFolder',
 				Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds',
 				ImageTypeLimit: 1,
 				EnableImages: true,

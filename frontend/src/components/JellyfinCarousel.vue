@@ -11,7 +11,9 @@ const props = defineProps({
 
 const carouselRef = ref(null);
 const showRightFade = ref(false);
-let wheelLockUntil = 0;
+let wheelFrameId = 0;
+let wheelAccumulated = 0;
+const wheelThreshold = 24;
 
 function updateRightFade() {
   const el = carouselRef.value;
@@ -30,19 +32,23 @@ function onWheelScroll(event) {
   if (!el) return;
 
   if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
-    const now = Date.now();
-    if (now < wheelLockUntil) {
-      event.preventDefault();
-      return;
-    }
+    wheelAccumulated += event.deltaY;
 
-    const card = el.querySelector('[data-media-card]');
-    const itemWidth = card ? card.clientWidth : 144;
-    const step = Math.round((itemWidth + 16) * 1.15);
-    const direction = event.deltaY > 0 ? 1 : -1;
-    el.scrollBy({left: direction * step, behavior: 'smooth'});
-    wheelLockUntil = now + 170;
-    updateRightFade();
+    if (!wheelFrameId) {
+      wheelFrameId = window.requestAnimationFrame(() => {
+        const target = carouselRef.value;
+        if (target && Math.abs(wheelAccumulated) >= wheelThreshold) {
+          const card = target.querySelector('[data-media-card]');
+          const itemWidth = card ? card.clientWidth : 144;
+          const step = Math.round((itemWidth + 16) * 1.02);
+          const direction = wheelAccumulated > 0 ? 1 : -1;
+          target.scrollBy({left: direction * step, behavior: 'smooth'});
+          wheelAccumulated = 0;
+          updateRightFade();
+        }
+        wheelFrameId = 0;
+      });
+    }
 
     if (el.scrollWidth > el.clientWidth) {
       event.preventDefault();
@@ -66,6 +72,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateRightFade);
+  if (wheelFrameId) {
+    window.cancelAnimationFrame(wheelFrameId);
+  }
 });
 </script>
 
