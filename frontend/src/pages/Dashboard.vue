@@ -106,5 +106,16 @@ onUnmounted(() => {
       </section>
 
     </main>
+
+    <div class="fixed bottom-4 right-4 z-50 flex w-[min(92vw,320px)] flex-col gap-2">
+      <div
+          v-for="item in homeStore.notifications"
+          :key="item.id"
+          :class="item.type === 'error' ? 'border-red-300/35 text-red-100' : 'border-emerald-300/35 text-emerald-100'"
+          class="glass border px-3 py-2 text-xs shadow-lg motion-fade-in"
+      >
+        {{ item.message }}
+      </div>
+    </div>
   </div>
 </template>

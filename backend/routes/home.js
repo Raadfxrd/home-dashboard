@@ -10,6 +10,8 @@ const HB_PASSWORD = process.env.HOMEBRIDGE_PASSWORD || 'admin';
 let homebridgeToken = null;
 let tokenExpiry = 0;
 let tokenPromise = null;
+const deviceWriteQueues = new Map();
+const lastCharacteristicValues = new Map();
 
 function logHomebridge(event, details = {}) {
 	console.log('[Homebridge]', event, details);
@@ -45,6 +47,19 @@ function normalizeRoomName(roomName) {
 		.split(/\s+/)
 		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
 		.join(' ');
+}
+
+function enqueueDeviceWrite(deviceId, task) {
+	const previous = deviceWriteQueues.get(deviceId) || Promise.resolve();
+	const next = previous.catch(() => {
+	}).then(task);
+	deviceWriteQueues.set(deviceId, next);
+
+	return next.finally(() => {
+		if (deviceWriteQueues.get(deviceId) === next) {
+			deviceWriteQueues.delete(deviceId);
+		}
+	});
 }
 
 function hueSatToHex(hue, saturation) {
@@ -152,7 +167,7 @@ async function getToken() {
 	return tokenPromise;
 }
 
-const DEVICE_ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;
+const DEVICE_ID_PATTERN = /^[^/?#]+$/;
 
 function mockDevices() {
 	return [
@@ -257,15 +272,6 @@ function mockDevices() {
 	];
 }
 
-function groupByRoom(devices) {
-	return devices.reduce((acc, device) => {
-		const roomName = normalizeRoomName(device.room);
-		if (!acc[roomName]) acc[roomName] = [];
-		acc[roomName].push({...device, room: roomName});
-		return acc;
-	}, {});
-}
-
 function resolveRoomName(acc) {
 	return normalizeRoomName(
 		acc.room?.name ||
@@ -276,9 +282,6 @@ function resolveRoomName(acc) {
 	);
 }
 
-function hasCharacteristic(acc, type) {
-	return Boolean(acc.serviceCharacteristics?.find((c) => c.type === type));
-}
 
 function isHiddenAccessory(acc) {
 	const hiddenChar = acc.serviceCharacteristics?.find((c) => c.type === 'Hidden');
@@ -329,6 +332,12 @@ async function fetchHomebridgeDevices() {
 		const hue = supportsColor ? Number(hueChar.value) : null;
 		const saturation = supportsColor ? Number(saturationChar.value) : null;
 		const canToggle = Boolean(onChar) && type !== 'bridge' && type !== 'remote';
+
+		if (type === 'bridge' || type === 'remote') {
+			logHomebridge('accessory.skipped_filtered_type', {id: acc.uniqueId, name: acc.serviceName, type});
+			return null;
+		}
+
 		const isActionable = canToggle || supportsBrightness || supportsColor;
 
 		if (!isActionable) {
@@ -354,35 +363,48 @@ async function fetchHomebridgeDevices() {
 
 	return mapped
 		.filter(Boolean)
-		.sort((a, b) => `${a.room}:${a.name}`.localeCompare(`${b.room}:${b.name}`));
+		.sort((a, b) => `${a.name}`.localeCompare(`${b.name}`));
 }
 
 async function setCharacteristic(deviceId, characteristicType, value) {
-	const token = await getToken();
-	const safeId = encodeURIComponent(deviceId);
-	logHomebridge('accessory.characteristic_write_start', {
-		deviceId,
-		characteristicType,
-		value,
+	return enqueueDeviceWrite(deviceId, async () => {
+		const cacheKey = `${deviceId}:${characteristicType}`;
+		if (lastCharacteristicValues.get(cacheKey) === value) {
+			logHomebridge('accessory.characteristic_write_skip_unchanged', {
+				deviceId,
+				characteristicType,
+				value,
+			});
+			return;
+		}
+
+		const token = await getToken();
+		const safeId = encodeURIComponent(deviceId);
+		logHomebridge('accessory.characteristic_write_start', {
+			deviceId,
+			characteristicType,
+			value,
+		});
+
+		await axios.put(
+			`${HOMEBRIDGE_URL}/api/accessories/${safeId}`,
+			{characteristicType, value},
+			{headers: {Authorization: `Bearer ${token}`}}
+		);
+
+		lastCharacteristicValues.set(cacheKey, value);
+		logHomebridge('accessory.characteristic_write_success', {deviceId, characteristicType});
 	});
-
-	await axios.put(
-		`${HOMEBRIDGE_URL}/api/accessories/${safeId}`,
-		{characteristicType, value},
-		{headers: {Authorization: `Bearer ${token}`}}
-	);
-
-	logHomebridge('accessory.characteristic_write_success', {deviceId, characteristicType});
 }
 
 router.get('/devices', async (_req, res) => {
 	try {
 		const devices = await fetchHomebridgeDevices();
-		res.json(groupByRoom(devices));
+		res.json(devices);
 	} catch (err) {
 		console.warn('Homebridge unavailable, returning mock data:', err.message);
 		logHomebridge('accessories.fetch_fallback_mock', getErrorDetails(err));
-		res.json(groupByRoom(mockDevices()));
+		res.json(mockDevices());
 	}
 });
 

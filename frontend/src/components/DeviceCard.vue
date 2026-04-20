@@ -1,5 +1,5 @@
 <script setup>
-import {computed} from 'vue';
+import {computed, onUnmounted, ref} from 'vue';
 import {useHomeStore} from '../stores/useHomeStore.js';
 import AppIcon from './AppIcon.vue';
 
@@ -18,10 +18,9 @@ const icons = {
   sensor: 'sensor',
 };
 
-
-function onBrightnessInput(event) {
-  homeStore.setBrightness(props.device.id, event.target.value);
-}
+const cardRef = ref(null);
+const isDraggingBrightness = ref(false);
+const brightnessPreview = ref(null);
 
 function onColorInput(event) {
   homeStore.setColor(props.device.id, event.target.value);
@@ -37,16 +36,6 @@ function hexToRgba(hex, alpha) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const fillPercent = computed(() => {
-  if (!props.device.state) return 0;
-  if (typeof props.device.brightness === 'number') {
-    return Math.max(0, Math.min(100, props.device.brightness));
-  }
-  return 100;
-});
-
-const accentColor = computed(() => props.device.color || '#ffd080');
-
 const isOn = computed(() => {
   const value = props.device.state;
   if (typeof value === 'boolean') return value;
@@ -58,13 +47,83 @@ const isOn = computed(() => {
   return Boolean(value);
 });
 
+const canDragBrightness = computed(() => props.device.type === 'light' && props.device.supportsBrightness);
+
+const displayBrightness = computed(() => {
+  if (typeof brightnessPreview.value === 'number') {
+    return brightnessPreview.value;
+  }
+  if (typeof props.device.brightness === 'number') {
+    return Math.max(0, Math.min(100, props.device.brightness));
+  }
+  return isOn.value ? 100 : 0;
+});
+
+const fillPercent = computed(() => {
+  if (!isOn.value && !isDraggingBrightness.value) return 0;
+  return displayBrightness.value;
+});
+
+const accentColor = computed(() => props.device.color || '#ffd080');
+
 const tileFillStyle = computed(() => ({
   background: `linear-gradient(0deg, ${hexToRgba(accentColor.value, 0.46)} 0%, ${hexToRgba(accentColor.value, 0.46)} ${fillPercent.value}%, rgba(255, 255, 255, 0.03) ${fillPercent.value}%, rgba(255, 255, 255, 0.03) 100%)`,
 }));
+
+function pointerToBrightness(event) {
+  const el = cardRef.value;
+  if (!el) return 0;
+  const rect = el.getBoundingClientRect();
+  const relativeY = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+  return Math.round(100 - (relativeY / rect.height) * 100);
+}
+
+function stopBrightnessDragListeners() {
+  window.removeEventListener('pointermove', onBrightnessPointerMove);
+  window.removeEventListener('pointerup', onBrightnessPointerUp);
+  window.removeEventListener('pointercancel', onBrightnessPointerUp);
+}
+
+function onBrightnessPointerDown(event) {
+  if (!canDragBrightness.value || event.button !== 0) return;
+  if (event.target.closest('[data-ignore-brightness]')) return;
+
+  isDraggingBrightness.value = true;
+  brightnessPreview.value = pointerToBrightness(event);
+
+  window.addEventListener('pointermove', onBrightnessPointerMove);
+  window.addEventListener('pointerup', onBrightnessPointerUp);
+  window.addEventListener('pointercancel', onBrightnessPointerUp);
+}
+
+function onBrightnessPointerMove(event) {
+  if (!isDraggingBrightness.value) return;
+  brightnessPreview.value = pointerToBrightness(event);
+}
+
+async function onBrightnessPointerUp() {
+  if (!isDraggingBrightness.value) return;
+  const finalBrightness = Math.round(brightnessPreview.value ?? displayBrightness.value);
+
+  isDraggingBrightness.value = false;
+  brightnessPreview.value = null;
+  stopBrightnessDragListeners();
+
+  await homeStore.setBrightness(props.device.id, finalBrightness);
+}
+
+onUnmounted(() => {
+  stopBrightnessDragListeners();
+});
 </script>
 
 <template>
-  <div :class="isOn ? 'glass-on' : ''" class="glass relative w-full overflow-hidden p-4 motion-fade-in">
+  <div
+      ref="cardRef"
+      :class="[isOn ? 'glass-on' : '', canDragBrightness ? 'cursor-row-resize select-none' : '']"
+      class="glass relative w-full overflow-hidden p-4 motion-fade-in"
+      @pointerdown="onBrightnessPointerDown"
+  >
     <div class="pointer-events-none absolute inset-0 transition-all duration-300" :style="tileFillStyle"/>
 
     <div class="relative z-10 mb-4 flex items-start justify-between">
@@ -77,6 +136,7 @@ const tileFillStyle = computed(() => ({
 
       <button
           v-if="device.canToggle"
+          data-ignore-brightness
           :style="isOn
           ? 'background: rgba(255,255,255,0.5)'
           : 'background: rgba(255,255,255,0.14)'"
@@ -95,26 +155,15 @@ const tileFillStyle = computed(() => ({
     <div class="relative z-10 truncate text-sm font-medium leading-tight text-white/92">{{ device.name }}</div>
     <div :class="isOn ? 'text-white/65' : 'text-white/32'" class="relative z-10 mt-1.5 text-xs">
       {{ isOn ? 'On' : 'Off' }}
-      <span v-if="device.brightness !== null && isOn" class="text-white/45"> · {{ device.brightness }}%</span>
-    </div>
-
-    <div v-if="device.type === 'light' && device.supportsBrightness" class="relative z-10 mt-3">
-      <label class="mb-1 block text-[10px] uppercase tracking-[0.16em] text-white/45">Brightness</label>
-      <input
-          :value="device.brightness ?? 0"
-          class="w-full accent-white/80"
-          max="100"
-          min="0"
-          type="range"
-          @click.stop
-          @input="onBrightnessInput"
-      />
+      <span v-if="device.brightness !== null && (isOn || isDraggingBrightness)"
+            class="text-white/45"> · {{ Math.round(displayBrightness) }}%</span>
     </div>
 
     <div v-if="device.type === 'light' && device.supportsColor"
          class="relative z-10 mt-3 flex items-center justify-between gap-3">
       <span class="text-[10px] uppercase tracking-[0.16em] text-white/45">Color</span>
       <input
+          data-ignore-brightness
           :value="device.color || '#ffffff'"
           class="h-8 w-12 cursor-pointer rounded-md border border-white/20 bg-transparent p-0"
           type="color"

@@ -3,28 +3,35 @@ import {ref} from 'vue';
 import {get, post} from '../composables/useApi.js';
 
 export const useHomeStore = defineStore('home', () => {
-	const devices = ref({});
+	const devices = ref([]);
 	const isLoading = ref(false);
 	const error = ref(null);
+	const notifications = ref([]);
+
+	function notify(type, message) {
+		const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+		notifications.value.push({id, type, message});
+		setTimeout(() => {
+			notifications.value = notifications.value.filter((item) => item.id !== id);
+		}, 2800);
+	}
 
 	async function fetchDevices() {
 		isLoading.value = true;
 		error.value = null;
 		try {
-			devices.value = await get('/home/devices');
+			const payload = await get('/home/devices');
+			devices.value = Array.isArray(payload) ? payload : Object.values(payload || {}).flat();
 		} catch (err) {
 			error.value = err.response?.data?.error || 'Failed to load devices';
+			notify('error', error.value);
 		} finally {
 			isLoading.value = false;
 		}
 	}
 
 	function findDevice(deviceId) {
-		for (const room of Object.values(devices.value)) {
-			const device = room.find((d) => d.id === deviceId);
-			if (device) return device;
-		}
-		return null;
+		return devices.value.find((device) => device.id === deviceId) || null;
 	}
 
 	async function toggleDevice(deviceId, state) {
@@ -33,9 +40,11 @@ export const useHomeStore = defineStore('home', () => {
 		if (device) device.state = state;
 		try {
 			await post('/home/toggle', {deviceId, state});
+			notify('success', `${device.name}: ${state ? 'On' : 'Off'}`);
 		} catch (err) {
 			if (device) device.state = !state;
 			console.error('Toggle failed:', err.message);
+			notify('error', err.response?.data?.error || `Failed to toggle ${device.name}`);
 		}
 	}
 
@@ -54,10 +63,12 @@ export const useHomeStore = defineStore('home', () => {
 
 		try {
 			await post('/home/brightness', {deviceId, brightness: normalized});
+			notify('success', `${device.name}: Brightness ${normalized}%`);
 		} catch (err) {
 			device.brightness = previousBrightness;
 			device.state = previousState;
 			console.error('Brightness update failed:', err.message);
+			notify('error', err.response?.data?.error || `Failed to set brightness for ${device.name}`);
 		}
 	}
 
@@ -81,12 +92,14 @@ export const useHomeStore = defineStore('home', () => {
 			if (typeof response?.saturation === 'number') {
 				device.saturation = response.saturation;
 			}
+			notify('success', `${device.name}: Color updated`);
 		} catch (err) {
 			device.color = previousColor;
 			device.state = previousState;
 			console.error('Color update failed:', err.message);
+			notify('error', err.response?.data?.error || `Failed to set color for ${device.name}`);
 		}
 	}
 
-	return {devices, isLoading, error, fetchDevices, toggleDevice, setBrightness, setColor};
+	return {devices, isLoading, error, notifications, fetchDevices, toggleDevice, setBrightness, setColor};
 });
