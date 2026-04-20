@@ -21,6 +21,8 @@ const icons = {
 const cardRef = ref(null);
 const isDraggingBrightness = ref(false);
 const brightnessPreview = ref(null);
+const wheelCommitTimer = ref(null);
+const wheelCommitVersion = ref(0);
 
 function onColorInput(event) {
   homeStore.setColor(props.device.id, event.target.value);
@@ -48,6 +50,7 @@ const isOn = computed(() => {
 });
 
 const canDragBrightness = computed(() => props.device.type === 'light' && props.device.supportsBrightness);
+const canAdjustBrightness = computed(() => canDragBrightness.value && isOn.value);
 
 const displayBrightness = computed(() => {
   if (typeof brightnessPreview.value === 'number') {
@@ -86,10 +89,18 @@ function stopBrightnessDragListeners() {
   window.removeEventListener('pointercancel', onBrightnessPointerUp);
 }
 
+function clearWheelCommitTimer() {
+  if (!wheelCommitTimer.value) return;
+  clearTimeout(wheelCommitTimer.value);
+  wheelCommitTimer.value = null;
+  wheelCommitVersion.value += 1;
+}
+
 function onBrightnessPointerDown(event) {
-  if (!canDragBrightness.value || event.button !== 0) return;
+  if (!canAdjustBrightness.value || event.button !== 0) return;
   if (event.target.closest('[data-ignore-brightness]')) return;
 
+  clearWheelCommitTimer();
   isDraggingBrightness.value = true;
   brightnessPreview.value = pointerToBrightness(event);
 
@@ -114,16 +125,50 @@ async function onBrightnessPointerUp() {
   await homeStore.setBrightness(props.device.id, finalBrightness);
 }
 
+function onBrightnessWheel(event) {
+  if (!canAdjustBrightness.value) return;
+  if (!(event.target instanceof Element)) return;
+  if (event.target.closest('[data-ignore-brightness]')) return;
+
+  event.preventDefault();
+
+  const direction = event.deltaY > 0 ? -1 : 1;
+  const step = event.shiftKey ? 10 : 4;
+  const nextBrightness = Math.max(0, Math.min(100, Math.round(displayBrightness.value + direction * step)));
+
+  if (nextBrightness === displayBrightness.value) return;
+
+  isDraggingBrightness.value = true;
+  brightnessPreview.value = nextBrightness;
+
+  clearWheelCommitTimer();
+  const commitVersion = wheelCommitVersion.value;
+  wheelCommitTimer.value = setTimeout(async () => {
+    if (commitVersion !== wheelCommitVersion.value) return;
+
+    const finalBrightness = Math.round(brightnessPreview.value ?? displayBrightness.value);
+    await homeStore.setBrightness(props.device.id, finalBrightness);
+
+    if (commitVersion !== wheelCommitVersion.value) return;
+
+    isDraggingBrightness.value = false;
+    brightnessPreview.value = null;
+    wheelCommitTimer.value = null;
+  }, 120);
+}
+
 onUnmounted(() => {
   stopBrightnessDragListeners();
+  clearWheelCommitTimer();
 });
 </script>
 
 <template>
   <div
       ref="cardRef"
-      :class="[isOn ? 'glass-on' : '', canDragBrightness ? 'cursor-row-resize select-none' : '']"
+      :class="[isOn ? 'glass-on' : '', canAdjustBrightness ? 'cursor-row-resize select-none' : '']"
       class="glass relative w-full overflow-hidden p-4 motion-fade-in"
+      @wheel="onBrightnessWheel"
       @pointerdown="onBrightnessPointerDown"
   >
     <div

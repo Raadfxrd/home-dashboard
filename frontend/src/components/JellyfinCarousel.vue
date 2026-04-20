@@ -31,6 +31,10 @@ function onWheelScroll(event) {
   const el = carouselRef.value;
   if (!el) return;
 
+  if (!event.shiftKey) {
+    return;
+  }
+
   if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
     wheelAccumulated += event.deltaY;
 
