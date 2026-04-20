@@ -1,19 +1,20 @@
 <script setup>
-import { useHomeStore } from '../stores/useHomeStore.js';
+import {useHomeStore} from '../stores/useHomeStore.js';
+import AppIcon from './AppIcon.vue';
 
 const props = defineProps({
-  device: { type: Object, required: true },
+  device: {type: Object, required: true},
 });
 
 const homeStore = useHomeStore();
 
 const icons = {
-  light: '💡',
-  switch: '🔌',
-  fan: '🌀',
-  thermostat: '🌡️',
-  lock: '🔒',
-  sensor: '📡',
+  light: 'lightbulb',
+  switch: 'power',
+  fan: 'fan',
+  thermostat: 'thermostat',
+  lock: 'lock',
+  sensor: 'sensor',
 };
 
 function toggle() {
@@ -23,38 +24,35 @@ function toggle() {
 
 <template>
   <button
-    @click="toggle"
-    class="glass w-full text-left rounded-2xl p-4 transition-colors duration-200 outline-none focus-visible:ring-1 focus-visible:ring-white/20"
-    :class="device.state ? 'glass-on' : ''"
+      :class="device.state ? 'glass-on' : ''"
+      class="glass w-full text-left p-4 motion-fade-in outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+      @click="toggle"
   >
-    <!-- Icon row -->
-    <div class="flex items-start justify-between mb-4">
+    <div class="mb-4 flex items-start justify-between">
       <span
-        class="text-2xl transition-opacity duration-200"
-        :class="device.state ? 'opacity-100' : 'opacity-40'"
-      >{{ icons[device.type] || '🏠' }}</span>
+          :class="device.state ? 'text-white' : 'text-white/45'"
+          class="glass-icon-chip transition-all duration-200"
+      >
+        <AppIcon :name="icons[device.type] || 'home'" :size="18"/>
+      </span>
 
-      <!-- Toggle pill — Apple green when on -->
       <div
-        class="w-10 h-[22px] rounded-full relative transition-colors duration-200 flex-shrink-0"
-        :style="device.state
-          ? 'background: #34c759'
-          : 'background: rgba(255,255,255,0.12)'"
+          :style="device.state
+          ? 'background: rgba(255,255,255,0.5)'
+          : 'background: rgba(255,255,255,0.14)'"
+          class="relative h-[24px] w-11 flex-shrink-0 rounded-full transition-colors duration-300"
       >
         <div
-          class="absolute top-[3px] w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200"
-          :class="device.state ? 'translate-x-[22px]' : 'translate-x-[3px]'"
+            :class="device.state ? 'translate-x-[23px]' : 'translate-x-[3px]'"
+            class="absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-transform duration-300"
         ></div>
       </div>
     </div>
 
-    <!-- Name & status -->
-    <div class="text-sm font-medium text-white/90 truncate leading-tight">{{ device.name }}</div>
-    <div class="text-xs mt-1.5"
-         :class="device.state ? 'text-white/60' : 'text-white/25'">
+    <div class="truncate text-sm font-medium leading-tight text-white/92">{{ device.name }}</div>
+    <div :class="device.state ? 'text-white/65' : 'text-white/32'" class="mt-1.5 text-xs">
       {{ device.state ? 'On' : 'Off' }}
-      <span v-if="device.brightness !== null && device.state"
-            class="text-white/35"> · {{ device.brightness }}%</span>
+      <span v-if="device.brightness !== null && device.state" class="text-white/45"> · {{ device.brightness }}%</span>
     </div>
   </button>
 </template>

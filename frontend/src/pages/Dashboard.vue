@@ -1,25 +1,26 @@
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import {onMounted, onUnmounted, ref, watch} from 'vue';
 import WeatherCard from '../components/WeatherCard.vue';
 import HomeKitPanel from '../components/HomeKitPanel.vue';
 import JellyfinCarousel from '../components/JellyfinCarousel.vue';
-import { useWeatherStore } from '../stores/useWeatherStore.js';
-import { useHomeStore } from '../stores/useHomeStore.js';
-import { useJellyfinStore } from '../stores/useJellyfinStore.js';
-import { useGeolocation } from '../composables/useGeolocation.js';
+import AppIcon from '../components/AppIcon.vue';
+import {useWeatherStore} from '../stores/useWeatherStore.js';
+import {useHomeStore} from '../stores/useHomeStore.js';
+import {useJellyfinStore} from '../stores/useJellyfinStore.js';
+import {useGeolocation} from '../composables/useGeolocation.js';
 
 const weatherStore = useWeatherStore();
 const homeStore = useHomeStore();
 const jellyfinStore = useJellyfinStore();
 
-const { coords, isLoading: geoLoading } = useGeolocation();
+const {coords, isLoading: geoLoading} = useGeolocation();
 
 const clock = ref('');
 const clockInterval = ref(null);
 
 function updateClock() {
   const now = new Date();
-  clock.value = now.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  clock.value = now.toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 }
 
 watch(coords, (val) => {
@@ -44,56 +45,61 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- Root: clean neutral dark background -->
-  <div class="relative min-h-screen overflow-x-hidden text-white"
-       style="background: #111113;">
+  <div class="relative min-h-screen overflow-x-hidden text-white">
+    <div class="pointer-events-none absolute inset-0 opacity-90"/>
 
-    <!-- Glass header -->
-    <header class="glass sticky top-0 z-30 flex items-center justify-between px-8 py-4">
+    <header
+        class="glass glass-elevated motion-fade-in sticky top-3 z-30 mx-3 mt-3 flex items-center justify-between px-4 py-3 md:mx-6 md:px-6 md:py-4">
       <div class="flex items-center gap-3">
-        <span class="text-lg leading-none">🏠</span>
-        <h1 class="text-xl font-semibold tracking-tight">Home Dashboard</h1>
+        <span class="glass-icon-chip">
+          <AppIcon :size="18" name="home"/>
+        </span>
+        <div>
+          <h1 class="text-lg font-semibold tracking-tight md:text-xl">Home Dashboard</h1>
+          <p class="text-xs text-white/45">Control center</p>
+        </div>
       </div>
-      <span class="text-sm font-mono text-white/50 tabular-nums">{{ clock }}</span>
+      <span
+          class="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-medium text-white/70 md:text-sm">
+        <AppIcon :size="14" class="text-white/65" name="clock"/>
+        <span class="font-mono tabular-nums">{{ clock }}</span>
+      </span>
     </header>
 
-    <!-- Main content -->
-    <main class="relative z-10 px-6 py-8 space-y-10 max-w-screen-xl mx-auto">
+    <main class="relative z-10 mx-auto max-w-screen-xl space-y-8 px-4 pb-10 pt-8 md:px-6">
 
-      <!-- Weather -->
-      <section>
+      <section class="glass-section motion-fade-in">
         <p class="glass-section-label mb-4">Weather</p>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
           <WeatherCard
-            title="Amsterdam"
-            :weather="weatherStore.amsterdamWeather"
-            :is-loading="weatherStore.isLoading"
+              :is-loading="weatherStore.isLoading"
+              :weather="weatherStore.amsterdamWeather"
+              title="Amsterdam"
           />
           <WeatherCard
-            title="Your Location"
-            :weather="weatherStore.locationWeather"
-            :is-loading="geoLoading || (!!coords && !weatherStore.locationWeather)"
+              :is-loading="geoLoading || (!!coords && !weatherStore.locationWeather)"
+              :weather="weatherStore.locationWeather"
+              title="Your Location"
           />
         </div>
       </section>
 
-      <!-- Smart Home -->
-      <section>
+      <section class="glass-section motion-fade-in">
         <p class="glass-section-label mb-4">Smart Home</p>
-        <HomeKitPanel />
+        <HomeKitPanel/>
       </section>
 
-      <!-- Jellyfin -->
-      <section class="space-y-8">
+      <section class="glass-section motion-fade-in space-y-8">
+        <p class="glass-section-label">Media</p>
         <JellyfinCarousel
-          title="Continue Watching"
-          :items="jellyfinStore.continueWatching"
-          :is-loading="jellyfinStore.isLoading"
+            :is-loading="jellyfinStore.isLoading"
+            :items="jellyfinStore.continueWatching"
+            title="Continue Watching"
         />
         <JellyfinCarousel
-          title="Recently Added"
-          :items="jellyfinStore.recentlyAdded"
-          :is-loading="jellyfinStore.isLoading"
+            :is-loading="jellyfinStore.isLoading"
+            :items="jellyfinStore.recentlyAdded"
+            title="Recently Added"
         />
       </section>
 
