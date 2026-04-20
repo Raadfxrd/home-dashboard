@@ -19,24 +19,21 @@ export const useHomeStore = defineStore('home', () => {
     }
   }
 
-  async function toggleDevice(deviceId, state) {
+  function findDevice(deviceId) {
     for (const room of Object.values(devices.value)) {
       const device = room.find((d) => d.id === deviceId);
-      if (device) {
-        device.state = state;
-        break;
-      }
+      if (device) return device;
     }
+    return null;
+  }
+
+  async function toggleDevice(deviceId, state) {
+    const device = findDevice(deviceId);
+    if (device) device.state = state;
     try {
       await post('/home/toggle', { deviceId, state });
     } catch (err) {
-      for (const room of Object.values(devices.value)) {
-        const device = room.find((d) => d.id === deviceId);
-        if (device) {
-          device.state = !state;
-          break;
-        }
-      }
+      if (device) device.state = !state;
       console.error('Toggle failed:', err.message);
     }
   }

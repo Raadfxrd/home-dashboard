@@ -15,7 +15,7 @@ const jellyfinStore = useJellyfinStore();
 const { coords, isLoading: geoLoading } = useGeolocation();
 
 const clock = ref('');
-let clockInterval = null;
+const clockInterval = ref(null);
 
 function updateClock() {
   const now = new Date();
@@ -30,7 +30,7 @@ watch(coords, (val) => {
 
 onMounted(() => {
   updateClock();
-  clockInterval = setInterval(updateClock, 1000);
+  clockInterval.value = setInterval(updateClock, 1000);
 
   weatherStore.fetchAmsterdamWeather();
   homeStore.fetchDevices();
@@ -39,7 +39,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  clearInterval(clockInterval);
+  clearInterval(clockInterval.value);
 });
 </script>
 

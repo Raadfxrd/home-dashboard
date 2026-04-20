@@ -9,17 +9,30 @@ const HB_PASSWORD = process.env.HOMEBRIDGE_PASSWORD || 'admin';
 
 let homebridgeToken = null;
 let tokenExpiry = 0;
+let tokenPromise = null;
 
 async function getToken() {
   if (homebridgeToken && Date.now() < tokenExpiry) return homebridgeToken;
-  const res = await axios.post(`${HOMEBRIDGE_URL}/api/auth/login`, {
-    username: HB_USERNAME,
-    password: HB_PASSWORD,
-  });
-  homebridgeToken = res.data.access_token;
-  tokenExpiry = Date.now() + (res.data.expires_in || 3600) * 1000 - 60000;
-  return homebridgeToken;
+  if (tokenPromise) return tokenPromise;
+
+  tokenPromise = axios
+    .post(`${HOMEBRIDGE_URL}/api/auth/login`, {
+      username: HB_USERNAME,
+      password: HB_PASSWORD,
+    })
+    .then((res) => {
+      homebridgeToken = res.data.access_token;
+      tokenExpiry = Date.now() + (res.data.expires_in || 3600) * 1000 - 60000;
+      return homebridgeToken;
+    })
+    .finally(() => {
+      tokenPromise = null;
+    });
+
+  return tokenPromise;
 }
+
+const DEVICE_ID_PATTERN = /^[a-zA-Z0-9_\-]+$/;
 
 function mockDevices() {
   return [
@@ -127,6 +140,10 @@ router.post('/toggle', async (req, res) => {
   const { deviceId, state } = req.body;
   if (deviceId === undefined || state === undefined) {
     return res.status(400).json({ error: 'deviceId and state are required' });
+  }
+
+  if (!DEVICE_ID_PATTERN.test(String(deviceId))) {
+    return res.status(400).json({ error: 'Invalid deviceId format' });
   }
 
   if (deviceId.startsWith('mock-')) {
