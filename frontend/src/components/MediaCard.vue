@@ -48,6 +48,9 @@ function hasAnyLink(item) {
     <div class="p-2.5">
       <div class="text-xs font-medium text-white/80 truncate leading-tight">{{ item.title }}</div>
       <div v-if="item.year" class="text-[10px] text-white/30 mt-0.5">{{ item.year }}</div>
+      <div v-if="item.subtitle" class="mt-1 text-[10px] text-white/45 truncate leading-tight">
+        {{ item.subtitle }}
+      </div>
     </div>
 
   </component>

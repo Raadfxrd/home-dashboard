@@ -6,48 +6,14 @@ const router = express.Router();
 const JELLYFIN_URL = process.env.JELLYFIN_URL || 'http://localhost:8096';
 const JELLYFIN_API_KEY = process.env.JELLYFIN_API_KEY || '';
 const JELLYFIN_USER_ID = process.env.JELLYFIN_USER_ID || '';
+const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
+const TMDB_LANGUAGE = process.env.TMDB_LANGUAGE || 'en-US';
+const SUGGESTED_MAX_ITEMS = process.env.SUGGESTED_MAX_ITEMS || '15';
 let resolvedUserId = null;
 
-const SUGGESTED_TITLE_GROUPS = [
-	['inception'],
-	['interstellar'],
-	['the dark knight'],
-	['the dark knight rises'],
-	['breaking bad'],
-	['game of thrones'],
-	['the office'],
-	['the wire'],
-	['true detective'],
-	['the sopranos'],
-	['silo'],
-	['the batman'],
-	['oppenheimer'],
-	['dune'],
-	['dune part two', 'dune part 2'],
-	['blade runner 2049'],
-	['the lord of the rings'],
-	['the matrix'],
-	['avatar'],
-	['stranger things'],
-	['the last of us'],
-	['severance'],
-	['house of the dragon'],
-	['the bear'],
-	['arcane'],
-	['andor'],
-	['foundation'],
-];
-
-const SUGGESTED_MAX_ITEMS = 18;
-const SUGGESTED_MIN_SERIES = 5;
-
 function maskIdentifier(value) {
-	if (!value) {
-		return 'missing';
-	}
-	if (value.length <= 4) {
-		return '****';
-	}
+	if (!value) return 'missing';
+	if (value.length <= 4) return '****';
 	return `${value.slice(0, 2)}***${value.slice(-2)}`;
 }
 
@@ -67,8 +33,25 @@ function normalizeTitle(value = '') {
 	return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function isSeries(item) {
-	return item?.Type === 'Series';
+function normalizeSeriesKey(item) {
+	return item?.SeriesId || item?.ParentId || item?.Id || null;
+}
+
+function dedupeSeeds(items = []) {
+	const seen = new Set();
+	const result = [];
+	for (const item of items) {
+		const key = item?.Type === 'Episode' ? `series:${normalizeSeriesKey(item)}` : `item:${item?.Id}`;
+		if (!key || seen.has(key)) continue;
+		seen.add(key);
+		result.push(item);
+	}
+	return result;
+}
+
+function isCollectionLike(item) {
+	const type = String(item?.Type || '').toLowerCase();
+	return type === 'boxset' || type === 'collectionfolder' || type === 'collection';
 }
 
 function jellyfinHeaders() {
@@ -87,43 +70,24 @@ function buildDetailsUrl(itemId) {
 	return `${JELLYFIN_URL}/web/index.html#!/details?id=${encodeURIComponent(itemId)}`;
 }
 
-function getProviderId(item, keys = []) {
-	for (const key of keys) {
-		const value = item?.ProviderIds?.[key];
-		if (value) {
-			return String(value);
-		}
-	}
-	return null;
-}
-
-function buildTmdbUrl(item) {
-	const tmdbId = getProviderId(item, ['Tmdb', 'TMDB', 'TheMovieDb']);
-	if (!tmdbId) {
-		return null;
-	}
-
-	const type = String(item?.Type || '').toLowerCase();
-	const tmdbType = type === 'movie' ? 'movie' : 'tv';
-	return `https://www.themoviedb.org/${tmdbType}/${encodeURIComponent(tmdbId)}`;
-}
-
 function buildExternalLinks(item) {
-	const links = {
-		jellyfin: buildDetailsUrl(item.Id),
-	};
+	return {jellyfin: buildDetailsUrl(item.Id)};
+}
 
-	const tmdbUrl = buildTmdbUrl(item);
-	if (tmdbUrl) {
-		links.tmdb = tmdbUrl;
+function buildSubtitle(item) {
+	if (!item || item.Type !== 'Episode') return null;
+
+	const season = Number(item.ParentIndexNumber);
+	const episode = Number(item.IndexNumber);
+	const hasSeason = Number.isFinite(season) && season >= 0;
+	const hasEpisode = Number.isFinite(episode) && episode >= 0;
+
+	if (hasSeason && hasEpisode) {
+		const code = `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+		return code;
 	}
 
-	const tvdbId = getProviderId(item, ['Tvdb', 'TVDB']);
-	if (tvdbId) {
-		links.tvdb = `https://thetvdb.com/dereferrer/series/${encodeURIComponent(tvdbId)}`;
-	}
-
-	return links;
+	return null;
 }
 
 function mapItem(item, progress = 0) {
@@ -135,22 +99,15 @@ function mapItem(item, progress = 0) {
 		links: buildExternalLinks(item),
 		type: item.Type,
 		year: item.ProductionYear || null,
+		subtitle: item.subtitle || null,
 		progress,
 	};
 }
 
 function normalizeRecentItem(item) {
-	if (item?.Type !== 'Episode') {
-		return mapItem(item, 0);
-	}
-
+	if (item?.Type !== 'Episode') return mapItem(item, 0);
 	const seriesId = item.SeriesId || item.ParentId || item.Id;
-	const seriesLikeItem = {
-		...item,
-		Id: seriesId,
-		Name: item.SeriesName || item.Name,
-		Type: 'Series',
-	};
+	const seriesLikeItem = {...item, Id: seriesId, Name: item.SeriesName || item.Name, Type: 'Series'};
 	return {
 		id: seriesId,
 		title: item.SeriesName || item.Name,
@@ -159,6 +116,7 @@ function normalizeRecentItem(item) {
 		links: buildExternalLinks(seriesLikeItem),
 		type: 'Series',
 		year: item.ProductionYear || null,
+		subtitle: buildSubtitle(item),
 		progress: 0,
 		_episodeName: item.Name,
 	};
@@ -168,17 +126,66 @@ function mapItems(items = []) {
 	return items.map((item) => mapItem(item, 0));
 }
 
+async function fetchLatestEpisodeForSeries(userId, seriesId) {
+	const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+		headers: jellyfinHeaders(),
+		params: {
+			ParentId: seriesId,
+			Recursive: true,
+			IncludeItemTypes: 'Episode',
+			SortBy: 'DateCreated',
+			SortOrder: 'Descending',
+			Limit: 1,
+			Fields: 'ParentIndexNumber,IndexNumber,Name',
+		},
+	});
+
+	return response.data?.Items?.[0] || null;
+}
+
+async function fetchTmdbTrendingTitles() {
+	if (!TMDB_API_KEY) return [];
+	try {
+		const [movies, shows] = await Promise.all([
+			axios.get('https://api.themoviedb.org/3/trending/movie/week', {
+				params: {
+					api_key: TMDB_API_KEY,
+					language: TMDB_LANGUAGE
+				}
+			}),
+			axios.get('https://api.themoviedb.org/3/trending/tv/week', {
+				params: {
+					api_key: TMDB_API_KEY,
+					language: TMDB_LANGUAGE
+				}
+			}),
+		]);
+		return [
+			...(movies.data?.results || []).map((item) => ({title: item.title, type: 'Movie'})),
+			...(shows.data?.results || []).map((item) => ({title: item.name, type: 'Series'})),
+		];
+	} catch (err) {
+		logJellyfin('tmdb.trending_failed', getErrorDetails(err));
+		return [];
+	}
+}
+
+function scoreCandidate(item, historyGenres, tmdbTitles) {
+	const genres = item.Genres || [];
+	const genreHits = genres.reduce((score, genre) => score + (historyGenres.get(normalizeTitle(genre)) || 0), 0);
+	const normalizedTitle = normalizeTitle(item.Name || '');
+	const tmdbHit = tmdbTitles.some((entry) => normalizeTitle(entry.title) === normalizedTitle && entry.type === item.Type);
+	return genreHits * 10 + (tmdbHit ? 8 : 0) + (item.UserData?.IsFavorite ? 2 : 0);
+}
+
 async function getResolvedUserId() {
 	if (resolvedUserId) {
 		logJellyfin('user.resolve.cache_hit', {userId: maskIdentifier(resolvedUserId)});
 		return resolvedUserId;
 	}
 
-	if (!JELLYFIN_USER_ID) {
-		return null;
-	}
+	if (!JELLYFIN_USER_ID) return null;
 
-	// Keep compatibility: allow either a raw user ID (GUID) or a username.
 	if (/^[a-f0-9-]{32,36}$/i.test(JELLYFIN_USER_ID)) {
 		resolvedUserId = JELLYFIN_USER_ID;
 		logJellyfin('user.resolve.direct_id', {userId: maskIdentifier(resolvedUserId)});
@@ -187,9 +194,7 @@ async function getResolvedUserId() {
 
 	try {
 		logJellyfin('user.resolve.me_start');
-		const meResponse = await axios.get(`${JELLYFIN_URL}/Users/Me`, {
-			headers: jellyfinHeaders(),
-		});
+		const meResponse = await axios.get(`${JELLYFIN_URL}/Users/Me`, {headers: jellyfinHeaders()});
 		if (meResponse.data?.Id) {
 			resolvedUserId = meResponse.data.Id;
 			logJellyfin('user.resolve.me_success', {userId: maskIdentifier(resolvedUserId)});
@@ -200,15 +205,8 @@ async function getResolvedUserId() {
 	}
 
 	logJellyfin('user.resolve.lookup_start', {username: maskIdentifier(JELLYFIN_USER_ID)});
-
-	const response = await axios.get(`${JELLYFIN_URL}/Users`, {
-		headers: jellyfinHeaders(),
-	});
-
-	const match = (response.data || []).find(
-		(user) => user?.Name?.toLowerCase() === JELLYFIN_USER_ID.toLowerCase()
-	);
-
+	const response = await axios.get(`${JELLYFIN_URL}/Users`, {headers: jellyfinHeaders()});
+	const match = (response.data || []).find((user) => user?.Name?.toLowerCase() === JELLYFIN_USER_ID.toLowerCase());
 	if (!match?.Id) {
 		logJellyfin('user.resolve.lookup_miss', {username: maskIdentifier(JELLYFIN_USER_ID)});
 		return null;
@@ -219,61 +217,6 @@ async function getResolvedUserId() {
 	return resolvedUserId;
 }
 
-
-function pickSuggestedItems(items = []) {
-	const normalizedItems = items.map((item) => ({
-		item,
-		normalizedTitle: normalizeTitle(item.Name || ''),
-	}));
-
-	const selected = [];
-	const selectedIds = new Set();
-
-	for (const aliases of SUGGESTED_TITLE_GROUPS) {
-		const match = normalizedItems
-			.find(({normalizedTitle, item}) => {
-				if (!normalizedTitle || selectedIds.has(item.Id)) {
-					return false;
-				}
-				return aliases.some((alias) => {
-					const needle = normalizeTitle(alias);
-					return normalizedTitle === needle || normalizedTitle.includes(needle) || needle.includes(normalizedTitle);
-				});
-			});
-
-		if (match) {
-			selected.push(match.item);
-			selectedIds.add(match.item.Id);
-		}
-	}
-
-	const selectedSeriesCount = selected.filter(isSeries).length;
-	if (selectedSeriesCount < SUGGESTED_MIN_SERIES) {
-		for (const {item} of normalizedItems.filter(({item}) => isSeries(item))) {
-			if (selectedIds.has(item.Id)) {
-				continue;
-			}
-			selected.push(item);
-			selectedIds.add(item.Id);
-			if (selected.filter(isSeries).length >= SUGGESTED_MIN_SERIES) {
-				break;
-			}
-		}
-	}
-
-	for (const {item} of normalizedItems) {
-		if (selected.length >= SUGGESTED_MAX_ITEMS) {
-			break;
-		}
-		if (selectedIds.has(item.Id)) {
-			continue;
-		}
-		selected.push(item);
-		selectedIds.add(item.Id);
-	}
-
-	return selected.slice(0, SUGGESTED_MAX_ITEMS);
-}
 
 router.get('/suggested', async (_req, res) => {
 	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {
@@ -294,26 +237,96 @@ router.get('/suggested', async (_req, res) => {
 			return res.status(502).json({error: 'Failed to resolve Jellyfin user ID'});
 		}
 
-		const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
-			headers: jellyfinHeaders(),
-			params: {
-				Recursive: true,
-				Limit: 800,
-				IncludeItemTypes: 'Movie,Series',
-				Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds',
-				SortBy: 'DateCreated',
-				SortOrder: 'Descending',
-				ImageTypeLimit: 1,
-				EnableImages: true,
-			},
-		});
+		const [historyResponse, libraryResponse, tmdbTitles] = await Promise.all([
+			axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+				headers: jellyfinHeaders(),
+				params: {
+					Recursive: true,
+					Limit: 60,
+					IncludeItemTypes: 'Movie,Episode',
+					Filters: 'IsPlayed',
+					SortBy: 'DatePlayed',
+					SortOrder: 'Descending',
+					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,Genres,UserData,SeriesId,SeriesName,ParentId',
+					ImageTypeLimit: 1,
+					EnableImages: true,
+				},
+			}),
+			axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+				headers: jellyfinHeaders(),
+				params: {
+					Recursive: true,
+					Limit: 800,
+					IncludeItemTypes: 'Movie,Series',
+					ExcludeItemTypes: 'BoxSet,CollectionFolder',
+					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,Genres,UserData',
+					SortBy: 'DateCreated',
+					SortOrder: 'Descending',
+					ImageTypeLimit: 1,
+					EnableImages: true,
+				},
+			}),
+			fetchTmdbTrendingTitles(),
+		]);
 
-		const sourceItems = response.data?.Items || [];
-		const suggested = mapItems(pickSuggestedItems(sourceItems));
+		const historyItems = dedupeSeeds((historyResponse.data?.Items || []).filter((item) => !isCollectionLike(item))).slice(0, 30);
+		const libraryItems = (libraryResponse.data?.Items || [])
+			.filter((item) => item?.UserData?.IsPlayed !== true)
+			.filter((item) => !isCollectionLike(item));
+		const historyGenres = new Map();
+		for (const item of historyItems) {
+			for (const genre of item.Genres || []) {
+				const key = normalizeTitle(genre);
+				historyGenres.set(key, (historyGenres.get(key) || 0) + 1);
+			}
+		}
+
+		const scored = libraryItems
+			.map((item) => ({item, score: scoreCandidate(item, historyGenres, tmdbTitles)}))
+			.sort((a, b) => b.score - a.score || String(a.item.Name || '').localeCompare(String(b.item.Name || '')));
+
+		const selected = [];
+		const seen = new Set();
+
+		for (const {item} of scored) {
+			if (selected.length >= SUGGESTED_MAX_ITEMS) break;
+			const key = `${item.Type}:${item.Id}`;
+			if (seen.has(key)) continue;
+			selected.push(item);
+			seen.add(key);
+		}
+
+		if (selected.length < SUGGESTED_MAX_ITEMS && tmdbTitles.length) {
+			for (const entry of tmdbTitles) {
+				if (selected.length >= SUGGESTED_MAX_ITEMS) break;
+				const match = libraryItems.find((item) => {
+					if (seen.has(`${item.Type}:${item.Id}`)) return false;
+					return normalizeTitle(item.Name || '') === normalizeTitle(entry.title);
+				});
+				if (match) {
+					selected.push(match);
+					seen.add(`${match.Type}:${match.Id}`);
+				}
+			}
+		}
+
+		if (selected.length < SUGGESTED_MAX_ITEMS) {
+			for (const {item} of scored) {
+				if (selected.length >= SUGGESTED_MAX_ITEMS) break;
+				const key = `${item.Type}:${item.Id}`;
+				if (seen.has(key)) continue;
+				selected.push(item);
+				seen.add(key);
+			}
+		}
+
+		const response = historyResponse;
+		const suggested = mapItems(selected);
 
 		logJellyfin('suggested.fetch_success', {
 			status: response.status,
-			libraryItems: sourceItems.length,
+			historyItems: historyItems.length,
+			libraryItems: libraryItems.length,
 			suggestedItems: suggested.length,
 			durationMs: Date.now() - startedAt,
 		});
@@ -402,7 +415,7 @@ router.get('/recent', async (_req, res) => {
 				headers: jellyfinHeaders(),
 				params: {
 					Limit: 16,
-					Fields: 'PrimaryImageAspectRatio,ProviderIds,SeriesId,SeriesName,ParentId',
+					Fields: 'PrimaryImageAspectRatio,ProviderIds,SeriesId,SeriesName,ParentId,ParentIndexNumber,IndexNumber',
 					Recursive: true,
 					IncludeItemTypes: 'Movie,Series,Episode',
 					EnableImages: true,
@@ -423,7 +436,7 @@ router.get('/recent', async (_req, res) => {
 					SortBy: 'DateCreated',
 					SortOrder: 'Descending',
 					IncludeItemTypes: 'Movie,Series,Episode',
-					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,SeriesId,SeriesName,ParentId',
+					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,SeriesId,SeriesName,ParentId,ParentIndexNumber,IndexNumber',
 					ImageTypeLimit: 1,
 					EnableImages: true,
 				},
@@ -435,16 +448,30 @@ router.get('/recent', async (_req, res) => {
 			});
 		}
 
-		const deduped = [];
-		const seen = new Set();
+		const dedupedByKey = new Map();
 		for (const item of items) {
 			const key = item.type === 'Series' ? `series:${item.id}` : `movie:${item.id}`;
-			if (seen.has(key)) {
-				continue;
+			const existing = dedupedByKey.get(key);
+			if (!existing || (!existing.subtitle && item.subtitle)) {
+				dedupedByKey.set(key, item);
 			}
-			seen.add(key);
-			deduped.push(item);
 		}
+		const deduped = await Promise.all(
+			Array.from(dedupedByKey.values()).map(async (item) => {
+				if (item.type !== 'Series' || item.subtitle) {
+					return item;
+				}
+
+				try {
+					const latestEpisode = await fetchLatestEpisodeForSeries(userId, item.id);
+					const subtitle = buildSubtitle(latestEpisode);
+					return subtitle ? {...item, subtitle} : item;
+				} catch (err) {
+					logJellyfin('recent.series_subtitle_lookup_failed', {seriesId: item.id, ...getErrorDetails(err)});
+					return item;
+				}
+			})
+		);
 
 		logJellyfin('recent.fetch_success', {
 			status: response.status,
