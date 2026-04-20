@@ -10,25 +10,26 @@ defineProps({
 
 <template>
   <div>
-    <h2 class="text-lg font-semibold text-gray-400 uppercase tracking-wider mb-4">{{ title }}</h2>
+    <p class="glass-section-label mb-4">{{ title }}</p>
 
     <!-- Loading Skeleton -->
-    <div v-if="isLoading" class="flex gap-4 overflow-x-auto pb-2">
+    <div v-if="isLoading" class="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
       <div
         v-for="i in 6"
         :key="i"
-        class="flex-none w-36 bg-gray-800 rounded-xl animate-pulse"
+        class="flex-none w-36 glass rounded-2xl animate-pulse"
       >
-        <div class="aspect-[2/3] bg-gray-700 rounded-t-xl"></div>
-        <div class="p-2 space-y-1">
-          <div class="h-3 bg-gray-700 rounded"></div>
-          <div class="h-3 w-2/3 bg-gray-700 rounded"></div>
+        <div class="aspect-[2/3] bg-white/5 rounded-t-2xl"></div>
+        <div class="p-2.5 space-y-1.5">
+          <div class="h-2.5 bg-white/10 rounded-full"></div>
+          <div class="h-2.5 w-2/3 bg-white/10 rounded-full"></div>
         </div>
       </div>
     </div>
 
     <!-- No Items -->
-    <div v-else-if="!items.length" class="text-gray-500 text-sm py-4">
+    <div v-else-if="!items.length"
+         class="glass rounded-2xl py-6 px-5 text-white/30 text-xs tracking-wide text-center">
       Nothing to show here yet.
     </div>
 

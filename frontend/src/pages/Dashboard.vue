@@ -44,17 +44,39 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-900 text-white">
-    <header class="flex items-center justify-between px-8 py-6 border-b border-gray-700">
-      <h1 class="text-3xl font-bold tracking-tight">🏠 Home Dashboard</h1>
-      <div class="text-2xl font-mono text-gray-300">{{ clock }}</div>
+  <!-- Root: deep gradient background -->
+  <div class="relative min-h-screen overflow-x-hidden text-white"
+       style="background: linear-gradient(135deg, #0d0d1a 0%, #130f2a 35%, #0d1a2a 70%, #0a0a18 100%);">
+
+    <!-- Ambient orbs -->
+    <div class="pointer-events-none fixed inset-0 overflow-hidden" aria-hidden="true">
+      <div class="orb-1 absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full opacity-30"
+           style="background: radial-gradient(circle, #7c3aed 0%, transparent 70%); filter: blur(60px);"></div>
+      <div class="orb-2 absolute top-1/3 -right-40 w-[600px] h-[600px] rounded-full opacity-20"
+           style="background: radial-gradient(circle, #2563eb 0%, transparent 70%); filter: blur(80px);"></div>
+      <div class="orb-3 absolute -bottom-40 left-1/3 w-[500px] h-[500px] rounded-full opacity-20"
+           style="background: radial-gradient(circle, #0891b2 0%, transparent 70%); filter: blur(70px);"></div>
+    </div>
+
+    <!-- Glass header -->
+    <header class="glass sticky top-0 z-30 flex items-center justify-between px-8 py-4">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 rounded-xl flex items-center justify-center text-lg"
+             style="background: linear-gradient(135deg, #7c3aed, #2563eb);">🏠</div>
+        <h1 class="text-xl font-semibold tracking-tight">Home Dashboard</h1>
+      </div>
+      <div class="flex items-center gap-2 text-white/60">
+        <span class="text-sm font-mono text-white/80 tabular-nums">{{ clock }}</span>
+      </div>
     </header>
 
-    <main class="px-8 py-6 space-y-8 max-w-screen-xl mx-auto">
-      <!-- Weather Section -->
+    <!-- Main content -->
+    <main class="relative z-10 px-6 py-8 space-y-10 max-w-screen-xl mx-auto">
+
+      <!-- Weather -->
       <section>
-        <h2 class="text-lg font-semibold text-gray-400 uppercase tracking-wider mb-4">Weather</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <p class="glass-section-label mb-4">Weather</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
           <WeatherCard
             title="Amsterdam"
             :weather="weatherStore.amsterdamWeather"
@@ -68,14 +90,14 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- HomeKit Section -->
+      <!-- Smart Home -->
       <section>
-        <h2 class="text-lg font-semibold text-gray-400 uppercase tracking-wider mb-4">Smart Home</h2>
+        <p class="glass-section-label mb-4">Smart Home</p>
         <HomeKitPanel />
       </section>
 
-      <!-- Jellyfin Section -->
-      <section class="space-y-6">
+      <!-- Jellyfin -->
+      <section class="space-y-8">
         <JellyfinCarousel
           title="Continue Watching"
           :items="jellyfinStore.continueWatching"
@@ -87,6 +109,7 @@ onUnmounted(() => {
           :is-loading="jellyfinStore.isLoading"
         />
       </section>
+
     </main>
   </div>
 </template>

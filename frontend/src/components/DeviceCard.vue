@@ -24,25 +24,41 @@ function toggle() {
 <template>
   <button
     @click="toggle"
-    class="w-full text-left bg-gray-800 hover:bg-gray-700 rounded-2xl p-4 transition-all duration-200 border"
-    :class="device.state ? 'border-amber-500/50' : 'border-gray-700'"
+    class="glass glass-hover w-full text-left rounded-2xl p-4 transition-all duration-250 outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+    :class="device.state ? 'glass-active' : ''"
   >
-    <div class="flex items-start justify-between mb-3">
-      <span class="text-2xl">{{ icons[device.type] || '🏠' }}</span>
+    <!-- Icon row -->
+    <div class="flex items-start justify-between mb-4">
+      <!-- Device icon with glow when active -->
+      <span
+        class="text-2xl transition-all duration-300"
+        :class="device.state ? 'drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]' : 'opacity-50'"
+      >{{ icons[device.type] || '🏠' }}</span>
+
+      <!-- Toggle pill -->
       <div
-        class="w-9 h-5 rounded-full relative transition-colors duration-200 flex-shrink-0"
-        :class="device.state ? 'bg-amber-500' : 'bg-gray-600'"
+        class="w-10 h-[22px] rounded-full relative transition-all duration-300 flex-shrink-0 cursor-pointer"
+        :class="device.state
+          ? 'shadow-[0_0_12px_rgba(139,92,246,0.6)]'
+          : ''"
+        :style="device.state
+          ? 'background: linear-gradient(135deg, #7c3aed, #6d28d9)'
+          : 'background: rgba(255,255,255,0.12)'"
       >
         <div
-          class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200"
-          :class="device.state ? 'translate-x-4' : 'translate-x-0.5'"
+          class="absolute top-[3px] w-4 h-4 bg-white rounded-full shadow-md transition-transform duration-300"
+          :class="device.state ? 'translate-x-[22px]' : 'translate-x-[3px]'"
         ></div>
       </div>
     </div>
-    <div class="text-sm font-medium text-white truncate">{{ device.name }}</div>
-    <div class="text-xs mt-1" :class="device.state ? 'text-amber-400' : 'text-gray-500'">
+
+    <!-- Name & status -->
+    <div class="text-sm font-medium text-white/90 truncate leading-tight">{{ device.name }}</div>
+    <div class="text-xs mt-1.5 font-medium"
+         :class="device.state ? 'text-violet-300' : 'text-white/30'">
       {{ device.state ? 'On' : 'Off' }}
-      <span v-if="device.brightness !== null && device.state"> · {{ device.brightness }}%</span>
+      <span v-if="device.brightness !== null && device.state"
+            class="text-white/40"> · {{ device.brightness }}%</span>
     </div>
   </button>
 </template>

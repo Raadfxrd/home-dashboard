@@ -5,8 +5,10 @@ defineProps({
 </script>
 
 <template>
-  <div class="bg-gray-800 rounded-xl overflow-hidden hover:scale-105 transition-transform duration-200 cursor-pointer">
-    <div class="relative aspect-[2/3] bg-gray-700">
+  <div class="glass glass-hover rounded-2xl overflow-hidden cursor-pointer">
+
+    <!-- Poster -->
+    <div class="relative aspect-[2/3] bg-white/5">
       <img
         v-if="item.poster"
         :src="item.poster"
@@ -14,22 +16,27 @@ defineProps({
         class="w-full h-full object-cover"
         loading="lazy"
       />
-      <div v-else class="w-full h-full flex items-center justify-center text-gray-500 text-4xl">
+      <div v-else class="w-full h-full flex items-center justify-center text-white/20 text-4xl">
         🎬
       </div>
 
-      <!-- Progress Bar -->
-      <div v-if="item.progress > 0" class="absolute bottom-0 left-0 right-0 h-1 bg-gray-600">
-        <div
-          class="h-full bg-amber-500 transition-all duration-300"
-          :style="{ width: `${item.progress}%` }"
-        ></div>
+      <!-- Progress bar -->
+      <div v-if="item.progress > 0" class="absolute bottom-0 left-0 right-0">
+        <div class="h-[3px] bg-white/10">
+          <div
+            class="h-full transition-all duration-300 rounded-full"
+            style="background: linear-gradient(90deg, #7c3aed, #6d28d9);"
+            :style="{ width: `${item.progress}%` }"
+          ></div>
+        </div>
       </div>
     </div>
 
-    <div class="p-2">
-      <div class="text-xs font-medium text-white truncate">{{ item.title }}</div>
-      <div v-if="item.year" class="text-xs text-gray-500">{{ item.year }}</div>
+    <!-- Meta -->
+    <div class="p-2.5">
+      <div class="text-xs font-medium text-white/80 truncate leading-tight">{{ item.title }}</div>
+      <div v-if="item.year" class="text-[10px] text-white/30 mt-0.5">{{ item.year }}</div>
     </div>
+
   </div>
 </template>
