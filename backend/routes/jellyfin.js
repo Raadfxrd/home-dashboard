@@ -87,6 +87,62 @@ function buildDetailsUrl(itemId) {
 	return `${JELLYFIN_URL}/web/index.html#!/details?id=${encodeURIComponent(itemId)}`;
 }
 
+function getProviderId(item, keys = []) {
+	for (const key of keys) {
+		const value = item?.ProviderIds?.[key];
+		if (value) {
+			return String(value);
+		}
+	}
+	return null;
+}
+
+function buildTmdbUrl(item) {
+	const tmdbId = getProviderId(item, ['Tmdb', 'TMDB', 'TheMovieDb']);
+	if (!tmdbId) {
+		return null;
+	}
+
+	const type = String(item?.Type || '').toLowerCase();
+	const tmdbType = type === 'movie' ? 'movie' : 'tv';
+	return `https://www.themoviedb.org/${tmdbType}/${encodeURIComponent(tmdbId)}`;
+}
+
+function buildExternalLinks(item) {
+	const links = {
+		jellyfin: buildDetailsUrl(item.Id),
+	};
+
+	const tmdbUrl = buildTmdbUrl(item);
+	if (tmdbUrl) {
+		links.tmdb = tmdbUrl;
+	}
+
+	const tvdbId = getProviderId(item, ['Tvdb', 'TVDB']);
+	if (tvdbId) {
+		links.tvdb = `https://thetvdb.com/dereferrer/series/${encodeURIComponent(tvdbId)}`;
+	}
+
+	return links;
+}
+
+function mapItem(item, progress = 0) {
+	return {
+		id: item.Id,
+		title: item.Name,
+		poster: buildPosterUrl(item.Id),
+		url: buildDetailsUrl(item.Id),
+		links: buildExternalLinks(item),
+		type: item.Type,
+		year: item.ProductionYear || null,
+		progress,
+	};
+}
+
+function mapItems(items = []) {
+	return items.map((item) => mapItem(item, 0));
+}
+
 async function getResolvedUserId() {
 	if (resolvedUserId) {
 		logJellyfin('user.resolve.cache_hit', {userId: maskIdentifier(resolvedUserId)});
@@ -138,17 +194,6 @@ async function getResolvedUserId() {
 	return resolvedUserId;
 }
 
-function mapItems(items = []) {
-	return items.map((item) => ({
-		id: item.Id,
-		title: item.Name,
-		poster: buildPosterUrl(item.Id),
-		url: buildDetailsUrl(item.Id),
-		type: item.Type,
-		year: item.ProductionYear || null,
-		progress: 0,
-	}));
-}
 
 function pickSuggestedItems(items = []) {
 	const normalizedItems = items.map((item) => ({
@@ -230,7 +275,7 @@ router.get('/suggested', async (_req, res) => {
 				Recursive: true,
 				Limit: 800,
 				IncludeItemTypes: 'Movie,Series',
-				Fields: 'PrimaryImageAspectRatio,ProductionYear',
+				Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds',
 				SortBy: 'DateCreated',
 				SortOrder: 'Descending',
 				ImageTypeLimit: 1,
@@ -279,7 +324,7 @@ router.get('/continue', async (_req, res) => {
 				headers: jellyfinHeaders(),
 				params: {
 					Limit: 12,
-					Fields: 'PrimaryImageAspectRatio,UserData',
+					Fields: 'PrimaryImageAspectRatio,UserData,ProviderIds',
 					Recursive: true,
 					IncludeItemTypes: 'Movie,Episode',
 					EnableImages: true,
@@ -292,15 +337,7 @@ router.get('/continue', async (_req, res) => {
 			const ticks = item.RunTimeTicks || 0;
 			const playedTicks = item.UserData?.PlaybackPositionTicks || 0;
 			const progress = ticks > 0 ? Math.round((playedTicks / ticks) * 100) : 0;
-
-			return {
-				id: item.Id,
-				title: item.Name,
-				poster: buildPosterUrl(item.Id),
-				url: buildDetailsUrl(item.Id),
-				progress,
-				type: item.Type,
-			};
+			return mapItem(item, progress);
 		});
 
 		logJellyfin('continue.fetch_success', {
@@ -340,7 +377,7 @@ router.get('/recent', async (_req, res) => {
 				headers: jellyfinHeaders(),
 				params: {
 					Limit: 16,
-					Fields: 'PrimaryImageAspectRatio',
+					Fields: 'PrimaryImageAspectRatio,ProviderIds',
 					Recursive: true,
 					IncludeItemTypes: 'Movie,Series,Episode',
 					EnableImages: true,
@@ -361,7 +398,7 @@ router.get('/recent', async (_req, res) => {
 					SortBy: 'DateCreated',
 					SortOrder: 'Descending',
 					IncludeItemTypes: 'Movie,Series,Episode',
-					Fields: 'PrimaryImageAspectRatio,ProductionYear',
+					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds',
 					ImageTypeLimit: 1,
 					EnableImages: true,
 				},
@@ -383,6 +420,54 @@ router.get('/recent', async (_req, res) => {
 	} catch (err) {
 		console.error('Jellyfin recent error:', getErrorDetails(err));
 		res.status(502).json({error: 'Failed to fetch recent items'});
+	}
+});
+
+router.get('/library', async (req, res) => {
+	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {
+		return res.status(503).json({error: 'Jellyfin API key or user is not configured'});
+	}
+
+	const typeParam = String(req.query.type || 'movies').toLowerCase();
+	const includeItemTypes = typeParam === 'shows' ? 'Series' : 'Movie';
+	const startIndex = Math.max(0, parseInt(req.query.startIndex || '0', 10) || 0);
+	const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '48', 10) || 48));
+
+	try {
+		const userId = await getResolvedUserId();
+		if (!userId) {
+			return res.status(502).json({error: 'Failed to resolve Jellyfin user ID'});
+		}
+
+		const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			headers: jellyfinHeaders(),
+			params: {
+				Recursive: true,
+				StartIndex: startIndex,
+				Limit: limit,
+				SortBy: 'SortName',
+				SortOrder: 'Ascending',
+				IncludeItemTypes: includeItemTypes,
+				Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds',
+				ImageTypeLimit: 1,
+				EnableImages: true,
+			},
+		});
+
+		const sourceItems = response.data?.Items || [];
+		const total = response.data?.TotalRecordCount || sourceItems.length;
+		const items = mapItems(sourceItems);
+
+		res.json({
+			items,
+			total,
+			startIndex,
+			limit,
+			hasMore: startIndex + items.length < total,
+		});
+	} catch (err) {
+		console.error('Jellyfin library error:', getErrorDetails(err));
+		res.status(502).json({error: 'Failed to fetch Jellyfin library'});
 	}
 });
 

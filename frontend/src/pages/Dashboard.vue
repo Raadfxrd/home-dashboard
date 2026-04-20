@@ -1,5 +1,6 @@
 <script setup>
 import {onMounted, onUnmounted, ref, watch} from 'vue';
+import {RouterLink} from 'vue-router';
 import WeatherCard from '../components/WeatherCard.vue';
 import HomeKitPanel from '../components/HomeKitPanel.vue';
 import JellyfinCarousel from '../components/JellyfinCarousel.vue';
@@ -89,7 +90,15 @@ onUnmounted(() => {
       </section>
 
       <section class="glass-section motion-fade-in space-y-8">
-        <p class="glass-section-label">Media</p>
+        <div class="flex items-center justify-between gap-3">
+          <p class="glass-section-label">Media</p>
+          <RouterLink
+              class="rounded-lg border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/70 hover:bg-white/[0.12]"
+              to="/media/movies"
+          >
+            Browse Library
+          </RouterLink>
+        </div>
         <JellyfinCarousel
             :is-loading="jellyfinStore.suggestedLoading"
             :items="jellyfinStore.suggestedWatches"

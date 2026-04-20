@@ -4,16 +4,21 @@ import AppIcon from './AppIcon.vue';
 defineProps({
   item: {type: Object, required: true},
 });
+
+function hasAnyLink(item) {
+  return Boolean(item?.links?.jellyfin || item?.url);
+}
 </script>
 
 <template>
   <component
-      :is="item.url ? 'a' : 'div'"
-      :href="item.url || undefined"
-      :target="item.url ? '_blank' : undefined"
-      :rel="item.url ? 'noopener noreferrer' : undefined"
-      :class="item.url ? 'cursor-pointer hover:-translate-y-0.5 hover:bg-white/[0.085]' : 'cursor-default'"
+      :is="hasAnyLink(item) ? 'a' : 'div'"
+      :href="item?.links?.jellyfin || item?.url || undefined"
+      :target="hasAnyLink(item) ? '_blank' : undefined"
+      :rel="hasAnyLink(item) ? 'noopener noreferrer' : undefined"
+      :class="hasAnyLink(item) ? 'cursor-pointer hover:-translate-y-0.5 hover:bg-white/[0.085] focus-visible:ring-2 focus-visible:ring-white/25' : 'cursor-default'"
       class="media-card motion-fade-in overflow-hidden transition-all duration-300"
+      data-media-card
   >
     <div class="relative aspect-[2/3] bg-white/5">
       <img
