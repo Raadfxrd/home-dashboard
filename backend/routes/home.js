@@ -152,8 +152,9 @@ router.post('/toggle', async (req, res) => {
 
   try {
     const token = await getToken();
+    const safeId = encodeURIComponent(deviceId);
     await axios.put(
-      `${HOMEBRIDGE_URL}/api/accessories/${deviceId}`,
+      `${HOMEBRIDGE_URL}/api/accessories/${safeId}`,
       { characteristicType: 'On', value: state },
       { headers: { Authorization: `Bearer ${token}` } }
     );
