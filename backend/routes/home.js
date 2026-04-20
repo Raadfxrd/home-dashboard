@@ -180,109 +180,6 @@ async function getToken() {
 
 const DEVICE_ID_PATTERN = /^[^/?#]+$/;
 
-function mockDevices() {
-	return [
-		{
-			id: 'mock-1',
-			name: 'Living Room Light',
-			room: 'Living Room',
-			type: 'light',
-			state: true,
-			brightness: 80,
-			supportsBrightness: true,
-			supportsColor: true,
-			hue: 30,
-			saturation: 40,
-			color: '#ffc680',
-			canToggle: true,
-		},
-		{
-			id: 'mock-2',
-			name: 'Floor Lamp',
-			room: 'Living Room',
-			type: 'light',
-			state: false,
-			brightness: 0,
-			supportsBrightness: true,
-			supportsColor: true,
-			hue: 210,
-			saturation: 60,
-			color: '#6699ff',
-			canToggle: true,
-		},
-		{
-			id: 'mock-3',
-			name: 'Bedroom Light',
-			room: 'Bedroom',
-			type: 'light',
-			state: true,
-			brightness: 50,
-			supportsBrightness: true,
-			supportsColor: false,
-			hue: null,
-			saturation: null,
-			color: null,
-			canToggle: true,
-		},
-		{
-			id: 'mock-4',
-			name: 'Desk Lamp',
-			room: 'Bedroom',
-			type: 'light',
-			state: false,
-			brightness: 0,
-			supportsBrightness: true,
-			supportsColor: false,
-			hue: null,
-			saturation: null,
-			color: null,
-			canToggle: true,
-		},
-		{
-			id: 'mock-5',
-			name: 'TV Plug',
-			room: 'Living Room',
-			type: 'switch',
-			state: true,
-			brightness: null,
-			supportsBrightness: false,
-			supportsColor: false,
-			hue: null,
-			saturation: null,
-			color: null,
-			canToggle: true,
-		},
-		{
-			id: 'mock-6',
-			name: 'Kitchen Light',
-			room: 'Kitchen',
-			type: 'light',
-			state: false,
-			brightness: 0,
-			supportsBrightness: true,
-			supportsColor: true,
-			hue: 120,
-			saturation: 50,
-			color: '#80ff80',
-			canToggle: true,
-		},
-		{
-			id: 'mock-7',
-			name: 'Coffee Machine',
-			room: 'Kitchen',
-			type: 'switch',
-			state: false,
-			brightness: null,
-			supportsBrightness: false,
-			supportsColor: false,
-			hue: null,
-			saturation: null,
-			color: null,
-			canToggle: true,
-		},
-	];
-}
-
 function resolveRoomName(acc) {
 	return normalizeRoomName(
 		acc.room?.name ||
@@ -734,9 +631,9 @@ router.get('/devices', async (_req, res) => {
 		const devices = await fetchHomebridgeDevices();
 		res.json(devices);
 	} catch (err) {
-		console.warn('Homebridge unavailable, returning mock data:', err.message);
-		logHomebridge('accessories.fetch_fallback_mock', getErrorDetails(err));
-		res.json(mockDevices());
+		const details = getErrorDetails(err);
+		logHomebridge('accessories.fetch_error', details);
+		res.status(502).json({error: 'Failed to fetch Homebridge accessories', details});
 	}
 });
 
@@ -748,10 +645,6 @@ router.post('/toggle', async (req, res) => {
 
 	if (!DEVICE_ID_PATTERN.test(String(deviceId))) {
 		return res.status(400).json({error: 'Invalid deviceId format'});
-	}
-
-	if (deviceId.startsWith('mock-')) {
-		return res.json({success: true, deviceId, state});
 	}
 
 	try {
@@ -777,10 +670,6 @@ router.post('/brightness', async (req, res) => {
 	const normalized = clamp(Number(brightness), 0, 100);
 	if (Number.isNaN(normalized)) {
 		return res.status(400).json({error: 'brightness must be a number between 0 and 100'});
-	}
-
-	if (deviceId.startsWith('mock-')) {
-		return res.json({success: true, deviceId, brightness: normalized});
 	}
 
 	try {
@@ -812,9 +701,6 @@ router.post('/color', async (req, res) => {
 
 	const {hue, saturation} = rgbToHueSat(rgb);
 
-	if (deviceId.startsWith('mock-')) {
-		return res.json({success: true, deviceId, color: hueSatToHex(hue, saturation), hue, saturation});
-	}
 
 	try {
 		await setCharacteristic(deviceId, 'Hue', hue);

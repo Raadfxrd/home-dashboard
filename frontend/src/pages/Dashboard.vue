@@ -140,6 +140,7 @@ onUnmounted(() => {
 
     <div class="fixed bottom-4 left-4 z-50 flex w-[min(96vw,560px)] flex-wrap gap-2">
       <div class="group relative">
+        <div class="absolute bottom-full left-0 h-2 w-80"></div>
         <div
             :class="statusChipClass(homeStore.serviceStatus.indexers.onlineCount > 0, homeStore.serviceStatus.indexers.configured)"
             class="glass border px-3 py-2 text-xs shadow-lg"
@@ -163,6 +164,7 @@ onUnmounted(() => {
       </div>
 
       <div class="group relative">
+        <div class="absolute bottom-full left-0 h-2 w-80"></div>
         <div
             :class="statusChipClass(homeStore.serviceStatus.downloadClients.onlineCount > 0, homeStore.serviceStatus.downloadClients.configured)"
             class="glass border px-3 py-2 text-xs shadow-lg"

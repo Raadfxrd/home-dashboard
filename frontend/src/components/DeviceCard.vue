@@ -64,6 +64,8 @@ const fillPercent = computed(() => {
   return displayBrightness.value;
 });
 
+const showBrightnessFill = computed(() => isOn.value || isDraggingBrightness.value);
+
 const accentColor = computed(() => props.device.color || '#ffd080');
 
 const tileFillStyle = computed(() => ({
@@ -124,7 +126,11 @@ onUnmounted(() => {
       class="glass relative w-full overflow-hidden p-4 motion-fade-in"
       @pointerdown="onBrightnessPointerDown"
   >
-    <div class="pointer-events-none absolute inset-0 transition-all duration-300" :style="tileFillStyle"/>
+    <div
+        :class="showBrightnessFill ? 'opacity-100' : 'opacity-0'"
+        class="pointer-events-none absolute inset-0 transition-all duration-300"
+        :style="tileFillStyle"
+    />
 
     <div class="relative z-10 mb-4 flex items-start justify-between">
       <span
