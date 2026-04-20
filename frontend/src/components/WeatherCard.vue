@@ -39,15 +39,11 @@ defineProps({
     <!-- Weather Data -->
     <template v-else>
       <div class="flex items-center gap-5">
-        <div class="relative flex-shrink-0">
-          <div class="absolute inset-0 rounded-2xl blur-lg opacity-40"
-               style="background: radial-gradient(circle, #7c3aed, transparent 80%);"></div>
-          <img
-            :src="`https://openweathermap.org/img/wn/${weather.icon}@2x.png`"
-            :alt="weather.condition"
-            class="relative w-16 h-16 drop-shadow-lg"
-          />
-        </div>
+        <img
+          :src="`https://openweathermap.org/img/wn/${weather.icon}@2x.png`"
+          :alt="weather.condition"
+          class="w-16 h-16 flex-shrink-0"
+        />
         <div>
           <div class="text-4xl font-bold tracking-tight">{{ weather.temperature }}°C</div>
           <div class="text-sm text-white/50 capitalize mt-0.5">{{ weather.condition }}</div>

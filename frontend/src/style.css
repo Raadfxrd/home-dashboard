@@ -10,57 +10,27 @@
 @layer components {
   .glass {
     background: rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(160%);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
     border: 1px solid rgba(255, 255, 255, 0.10);
     box-shadow:
-      0 8px 32px rgba(0, 0, 0, 0.40),
-      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+      0 4px 24px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.10);
   }
 
-  .glass-hover {
-    transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
-  }
-  .glass-hover:hover {
-    background: rgba(255, 255, 255, 0.10);
+  /* Active device tile — slightly brighter, no colour tint */
+  .glass-on {
+    background: rgba(255, 255, 255, 0.11);
+    border-color: rgba(255, 255, 255, 0.18);
     box-shadow:
-      0 12px 40px rgba(0, 0, 0, 0.50),
-      inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  }
-
-  .glass-active {
-    background: rgba(139, 92, 246, 0.15);
-    border-color: rgba(139, 92, 246, 0.35);
-    box-shadow:
-      0 0 24px rgba(139, 92, 246, 0.20),
-      0 8px 32px rgba(0, 0, 0, 0.40),
-      inset 0 1px 0 rgba(255, 255, 255, 0.15);
+      0 4px 24px rgba(0, 0, 0, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
   }
 
   .glass-section-label {
     @apply text-xs font-semibold uppercase tracking-[0.18em] text-white/40;
   }
 }
-
-/* ─── Ambient orb animations ──────────────────────────────────────── */
-@keyframes float-slow {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%       { transform: translate(30px, -40px) scale(1.05); }
-  66%       { transform: translate(-20px, 20px) scale(0.97); }
-}
-@keyframes float-medium {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%       { transform: translate(-35px, 30px) scale(1.08); }
-}
-@keyframes float-fast {
-  0%, 100% { transform: translate(0, 0); }
-  40%       { transform: translate(20px, -25px); }
-  80%       { transform: translate(-15px, 15px); }
-}
-
-.orb-1 { animation: float-slow  18s ease-in-out infinite; }
-.orb-2 { animation: float-medium 14s ease-in-out infinite; }
-.orb-3 { animation: float-fast   10s ease-in-out infinite; }
 
 /* ─── Custom scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

@@ -5,7 +5,7 @@ defineProps({
 </script>
 
 <template>
-  <div class="glass glass-hover rounded-2xl overflow-hidden cursor-pointer">
+  <div class="glass rounded-2xl overflow-hidden cursor-pointer">
 
     <!-- Poster -->
     <div class="relative aspect-[2/3] bg-white/5">
@@ -24,8 +24,8 @@ defineProps({
       <div v-if="item.progress > 0" class="absolute bottom-0 left-0 right-0">
         <div class="h-[3px] bg-white/10">
           <div
-            class="h-full transition-all duration-300 rounded-full"
-            style="background: linear-gradient(90deg, #7c3aed, #6d28d9);"
+            class="h-full transition-all duration-300"
+            style="background: #0a84ff;"
             :style="{ width: `${item.progress}%` }"
           ></div>
         </div>
