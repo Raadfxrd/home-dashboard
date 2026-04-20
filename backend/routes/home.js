@@ -16,10 +16,11 @@ async function getToken() {
   if (tokenPromise) return tokenPromise;
 
   tokenPromise = axios
-    .post(`${HOMEBRIDGE_URL}/api/auth/login`, {
-      username: HB_USERNAME,
-      password: HB_PASSWORD,
-    })
+    .post(
+      `${HOMEBRIDGE_URL}/api/auth/login`,
+      { username: HB_USERNAME, password: HB_PASSWORD },
+      { timeout: 5000 }
+    )
     .then((res) => {
       homebridgeToken = res.data.access_token;
       tokenExpiry = Date.now() + (res.data.expires_in || 3600) * 1000 - 60000;
@@ -107,6 +108,7 @@ async function fetchHomebridgeDevices() {
   const token = await getToken();
   const res = await axios.get(`${HOMEBRIDGE_URL}/api/accessories`, {
     headers: { Authorization: `Bearer ${token}` },
+    timeout: 5000,
   });
 
   return res.data.map((acc) => {
