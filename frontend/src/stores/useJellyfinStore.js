@@ -4,10 +4,13 @@ import {get} from '../composables/useApi.js';
 
 export const useJellyfinStore = defineStore('jellyfin', () => {
 	const suggestedWatches = ref([]);
+	const recommendedShows = ref([]);
 	const recentlyAdded = ref([]);
 	const suggestedLoading = ref(false);
+	const recommendedShowsLoading = ref(false);
 	const recentLoading = ref(false);
 	const suggestedError = ref(null);
+	const recommendedShowsError = ref(null);
 	const recentError = ref(null);
 
 	async function fetchSuggestedWatches() {
@@ -19,6 +22,18 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 			suggestedError.value = err.response?.data?.error || 'Failed to load suggested watches';
 		} finally {
 			suggestedLoading.value = false;
+		}
+	}
+
+	async function fetchRecommendedShows() {
+		recommendedShowsLoading.value = true;
+		recommendedShowsError.value = null;
+		try {
+			recommendedShows.value = await get('/jellyfin/suggested?type=shows');
+		} catch (err) {
+			recommendedShowsError.value = err.response?.data?.error || 'Failed to load recommended shows';
+		} finally {
+			recommendedShowsLoading.value = false;
 		}
 	}
 
@@ -36,12 +51,16 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 
 	return {
 		suggestedWatches,
+		recommendedShows,
 		recentlyAdded,
 		suggestedLoading,
+		recommendedShowsLoading,
 		recentLoading,
 		suggestedError,
+		recommendedShowsError,
 		recentError,
 		fetchSuggestedWatches,
+		fetchRecommendedShows,
 		fetchRecentlyAdded,
 	};
 });

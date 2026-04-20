@@ -83,8 +83,7 @@ function buildSubtitle(item) {
 	const hasEpisode = Number.isFinite(episode) && episode >= 0;
 
 	if (hasSeason && hasEpisode) {
-		const code = `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
-		return code;
+		return `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
 	}
 
 	return null;
@@ -218,7 +217,7 @@ async function getResolvedUserId() {
 }
 
 
-router.get('/suggested', async (_req, res) => {
+router.get('/suggested', async (req, res) => {
 	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {
 		logJellyfin('suggested.skipped_missing_config', {
 			hasApiKey: Boolean(JELLYFIN_API_KEY),
@@ -227,9 +226,15 @@ router.get('/suggested', async (_req, res) => {
 		return res.status(503).json({error: 'Jellyfin API key or user is not configured'});
 	}
 
+	const typeParam = String(req.query.type || 'all').toLowerCase();
+	const suggestionMode = typeParam === 'shows' ? 'shows' : typeParam === 'movies' ? 'movies' : 'all';
+	const historyTypes = suggestionMode === 'shows' ? 'Episode' : 'Movie,Episode';
+	const libraryTypes = suggestionMode === 'shows' ? 'Series' : suggestionMode === 'movies' ? 'Movie' : 'Movie,Series';
+	const suggestedLimit = Math.max(1, parseInt(SUGGESTED_MAX_ITEMS, 10) || 15);
+
 	try {
 		const startedAt = Date.now();
-		logJellyfin('suggested.fetch_start', {userRef: maskIdentifier(JELLYFIN_USER_ID)});
+		logJellyfin('suggested.fetch_start', {userRef: maskIdentifier(JELLYFIN_USER_ID), mode: suggestionMode});
 
 		const userId = await getResolvedUserId();
 		if (!userId) {
@@ -243,7 +248,7 @@ router.get('/suggested', async (_req, res) => {
 				params: {
 					Recursive: true,
 					Limit: 60,
-					IncludeItemTypes: 'Movie,Episode',
+					IncludeItemTypes: historyTypes,
 					Filters: 'IsPlayed',
 					SortBy: 'DatePlayed',
 					SortOrder: 'Descending',
@@ -257,7 +262,7 @@ router.get('/suggested', async (_req, res) => {
 				params: {
 					Recursive: true,
 					Limit: 800,
-					IncludeItemTypes: 'Movie,Series',
+					IncludeItemTypes: libraryTypes,
 					ExcludeItemTypes: 'BoxSet,CollectionFolder',
 					Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,Genres,UserData',
 					SortBy: 'DateCreated',
@@ -273,6 +278,11 @@ router.get('/suggested', async (_req, res) => {
 		const libraryItems = (libraryResponse.data?.Items || [])
 			.filter((item) => item?.UserData?.IsPlayed !== true)
 			.filter((item) => !isCollectionLike(item));
+		const scopedTmdbTitles = suggestionMode === 'shows'
+			? tmdbTitles.filter((entry) => entry.type === 'Series')
+			: suggestionMode === 'movies'
+				? tmdbTitles.filter((entry) => entry.type === 'Movie')
+				: tmdbTitles;
 		const historyGenres = new Map();
 		for (const item of historyItems) {
 			for (const genre of item.Genres || []) {
@@ -289,16 +299,16 @@ router.get('/suggested', async (_req, res) => {
 		const seen = new Set();
 
 		for (const {item} of scored) {
-			if (selected.length >= SUGGESTED_MAX_ITEMS) break;
+			if (selected.length >= suggestedLimit) break;
 			const key = `${item.Type}:${item.Id}`;
 			if (seen.has(key)) continue;
 			selected.push(item);
 			seen.add(key);
 		}
 
-		if (selected.length < SUGGESTED_MAX_ITEMS && tmdbTitles.length) {
-			for (const entry of tmdbTitles) {
-				if (selected.length >= SUGGESTED_MAX_ITEMS) break;
+		if (selected.length < suggestedLimit && scopedTmdbTitles.length) {
+			for (const entry of scopedTmdbTitles) {
+				if (selected.length >= suggestedLimit) break;
 				const match = libraryItems.find((item) => {
 					if (seen.has(`${item.Type}:${item.Id}`)) return false;
 					return normalizeTitle(item.Name || '') === normalizeTitle(entry.title);
@@ -310,9 +320,9 @@ router.get('/suggested', async (_req, res) => {
 			}
 		}
 
-		if (selected.length < SUGGESTED_MAX_ITEMS) {
+		if (selected.length < suggestedLimit) {
 			for (const {item} of scored) {
-				if (selected.length >= SUGGESTED_MAX_ITEMS) break;
+				if (selected.length >= suggestedLimit) break;
 				const key = `${item.Type}:${item.Id}`;
 				if (seen.has(key)) continue;
 				selected.push(item);
@@ -325,6 +335,7 @@ router.get('/suggested', async (_req, res) => {
 
 		logJellyfin('suggested.fetch_success', {
 			status: response.status,
+			mode: suggestionMode,
 			historyItems: historyItems.length,
 			libraryItems: libraryItems.length,
 			suggestedItems: suggested.length,

@@ -90,6 +90,7 @@ onMounted(() => {
   homeStore.fetchDevices();
   homeStore.fetchServiceStatus();
   jellyfinStore.fetchSuggestedWatches();
+  jellyfinStore.fetchRecommendedShows();
   jellyfinStore.fetchRecentlyAdded();
 
   serviceStatusInterval.value = setInterval(() => {
@@ -216,7 +217,13 @@ onUnmounted(() => {
             :is-loading="jellyfinStore.suggestedLoading"
             :items="jellyfinStore.suggestedWatches"
             :error="jellyfinStore.suggestedError"
-            title="Suggested watches"
+            title="Suggested movies"
+        />
+        <JellyfinCarousel
+            :is-loading="jellyfinStore.recommendedShowsLoading"
+            :items="jellyfinStore.recommendedShows"
+            :error="jellyfinStore.recommendedShowsError"
+            title="Recommended shows"
         />
         <JellyfinCarousel
             :is-loading="jellyfinStore.recentLoading"
