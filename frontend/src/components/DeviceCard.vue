@@ -167,7 +167,7 @@ onUnmounted(() => {
   <div
       ref="cardRef"
       :class="[isOn ? 'glass-on' : '', canAdjustBrightness ? 'cursor-row-resize select-none' : '']"
-      class="glass relative w-full overflow-hidden p-4 motion-fade-in"
+      class="glass relative w-full overflow-hidden p-3 motion-fade-in md:p-3.5"
       @wheel="onBrightnessWheel"
       @pointerdown="onBrightnessPointerDown"
   >
@@ -177,7 +177,7 @@ onUnmounted(() => {
         :style="tileFillStyle"
     />
 
-    <div class="relative z-10 mb-4 flex items-start justify-between">
+    <div class="relative z-10 mb-3 flex items-start justify-between">
       <span
           :class="isOn ? 'text-white' : 'text-white/45'"
           class="glass-icon-chip transition-all duration-200"
@@ -203,8 +203,11 @@ onUnmounted(() => {
       <span v-else class="text-[10px] uppercase tracking-[0.14em] text-white/45">{{ device.type }}</span>
     </div>
 
-    <div class="relative z-10 truncate text-sm font-medium leading-tight text-white/92">{{ device.name }}</div>
-    <div :class="isOn ? 'text-white/65' : 'text-white/32'" class="relative z-10 mt-1.5 text-xs">
+    <div class="relative z-10 truncate text-[13px] font-medium leading-tight text-white/92 md:text-sm">{{
+        device.name
+      }}
+    </div>
+    <div :class="isOn ? 'text-white/65' : 'text-white/32'" class="relative z-10 mt-1 text-[11px] md:text-xs">
       {{ isOn ? 'On' : 'Off' }}
       <span v-if="device.brightness !== null && (isOn || isDraggingBrightness)"
             class="text-white/45"> · {{ Math.round(displayBrightness) }}%</span>

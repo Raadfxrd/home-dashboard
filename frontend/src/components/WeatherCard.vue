@@ -9,20 +9,20 @@ defineProps({
 </script>
 
 <template>
-  <div class="glass motion-fade-in min-h-[190px] p-6 flex flex-col gap-5">
+  <div class="glass motion-fade-in min-h-[168px] flex flex-col gap-4 p-4 md:p-5">
 
     <p class="glass-section-label">{{ title }}</p>
 
     <template v-if="isLoading">
-      <div class="motion-pulse-soft space-y-4">
-        <div class="flex items-center gap-4">
-          <div class="w-16 h-16 bg-white/10 rounded-2xl"></div>
+      <div class="motion-pulse-soft space-y-3.5">
+        <div class="flex items-center gap-3.5">
+          <div class="h-14 w-14 rounded-2xl bg-white/10"></div>
           <div class="space-y-2 flex-1">
-            <div class="h-8 w-28 bg-white/10 rounded-lg"></div>
-            <div class="h-4 w-36 bg-white/10 rounded-lg"></div>
+            <div class="h-7 w-24 rounded-lg bg-white/10"></div>
+            <div class="h-4 w-32 rounded-lg bg-white/10"></div>
           </div>
         </div>
-        <div class="flex gap-4">
+        <div class="flex gap-3.5">
           <div class="h-3 w-20 bg-white/10 rounded-lg"></div>
           <div class="h-3 w-20 bg-white/10 rounded-lg"></div>
         </div>
@@ -39,21 +39,21 @@ defineProps({
     </template>
 
     <template v-else>
-      <div class="flex items-center gap-5">
+      <div class="flex items-center gap-4">
         <img
             :alt="weather.condition"
             :src="`https://openweathermap.org/img/wn/${weather.icon}@2x.png`"
-            class="w-16 h-16 flex-shrink-0"
+            class="h-14 w-14 flex-shrink-0"
         />
         <div>
-          <div class="text-4xl font-semibold tracking-tight">{{ weather.temperature }}°C</div>
-          <div class="mt-0.5 text-sm capitalize text-white/55">{{ weather.condition }}</div>
+          <div class="text-3xl font-semibold tracking-tight md:text-4xl">{{ weather.temperature }}°C</div>
+          <div class="mt-0.5 text-xs capitalize text-white/55 md:text-sm">{{ weather.condition }}</div>
         </div>
       </div>
 
-      <div class="text-sm font-medium text-white/75">{{ weather.city }}</div>
+      <div class="text-xs font-medium text-white/75 md:text-sm">{{ weather.city }}</div>
 
-      <div class="glass-divider pt-3 flex gap-5 text-xs text-white/50">
+      <div class="glass-divider flex gap-4 pt-2.5 text-[11px] text-white/50 md:text-xs">
         <span class="flex items-center gap-1.5">
           <AppIcon :size="14" class="text-white/70" name="droplet"/>{{ weather.humidity }}%
         </span>

@@ -69,7 +69,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="relative min-h-screen overflow-x-hidden text-white">
+  <div class="relative flex min-h-dvh flex-col overflow-x-hidden text-white">
     <div class="pointer-events-none absolute inset-0 opacity-90"/>
 
     <header
@@ -89,11 +89,12 @@ onUnmounted(() => {
       </span>
     </header>
 
-    <main class="relative z-10 mx-auto max-w-screen-xl space-y-8 px-4 pb-10 pt-8 md:px-6">
+    <main
+        class="relative z-10 grid flex-1 min-h-0 w-full gap-4 px-4 pb-6 pt-4 md:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] md:grid-rows-[auto_minmax(0,1fr)] md:items-stretch md:gap-4 md:px-6 lg:gap-5 lg:px-8 lg:pt-5">
 
-      <section class="glass-section motion-fade-in">
-        <p class="glass-section-label mb-4">Weather</p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <section class="glass-section motion-fade-in min-h-0 md:col-start-1 md:row-start-1">
+        <p class="glass-section-label mb-3">Weather</p>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <WeatherCard
               :is-loading="weatherStore.isLoading"
               :weather="weatherStore.amsterdamWeather"
@@ -107,12 +108,12 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <section class="glass-section motion-fade-in">
-        <p class="glass-section-label mb-4">Home</p>
+      <section class="glass-section motion-fade-in h-fit md:col-start-1 md:row-start-2">
+        <p class="glass-section-label mb-3">Home</p>
         <HomeKitPanel/>
       </section>
 
-      <section class="glass-section motion-fade-in space-y-8">
+      <section class="glass-section motion-fade-in h-fit space-y-4 md:col-start-2 md:row-span-2">
         <div class="flex items-center justify-between gap-3">
           <p class="glass-section-label">Media</p>
           <RouterLink

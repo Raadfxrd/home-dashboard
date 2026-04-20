@@ -45,10 +45,10 @@ function hasAnyLink(item) {
       </div>
     </div>
 
-    <div class="p-2.5">
-      <div class="text-xs font-medium text-white/80 truncate leading-tight">{{ item.title }}</div>
+    <div class="p-2">
+      <div class="truncate text-[11px] font-medium leading-tight text-white/80">{{ item.title }}</div>
       <div v-if="item.year" class="text-[10px] text-white/30 mt-0.5">{{ item.year }}</div>
-      <div v-if="item.subtitle" class="mt-1 text-[10px] text-white/45 truncate leading-tight">
+      <div v-if="item.subtitle" class="mt-0.5 truncate text-[10px] leading-tight text-white/45">
         {{ item.subtitle }}
       </div>
     </div>
@@ -60,10 +60,9 @@ function hasAnyLink(item) {
 .media-card {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1.45rem;
+  border-radius: 1.35rem;
   backdrop-filter: blur(24px) saturate(140%);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   box-shadow: none;
 }
 </style>
-

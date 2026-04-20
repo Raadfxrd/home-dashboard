@@ -5,7 +5,7 @@
 html,
 body,
 #app {
-	min-height: 100%;
+	min-height: 100dvh;
 }
 
 * {
@@ -33,10 +33,9 @@ body {
 	margin: 0;
 	font-family: Inter, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
 	color: var(--fg-0);
-	background:
-		radial-gradient(120rem 90rem at -8% -18%, rgba(255, 255, 255, 0.08), transparent 58%),
-		radial-gradient(70rem 70rem at 105% 0%, rgba(255, 255, 255, 0.05), transparent 62%),
-		linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 46%, var(--bg-2) 100%);
+	background: radial-gradient(120rem 90rem at -8% -18%, rgba(255, 255, 255, 0.08), transparent 58%),
+	radial-gradient(70rem 70rem at 105% 0%, rgba(255, 255, 255, 0.05), transparent 62%),
+	linear-gradient(160deg, var(--bg-0) 0%, var(--bg-1) 46%, var(--bg-2) 100%);
 }
 
 @keyframes softFloatIn {
@@ -88,7 +87,7 @@ body {
 	}
 
 	.glass-section {
-		@apply glass p-5 md:p-6;
+		@apply glass p-4 md:p-5;
 	}
 
 	.glass-icon-chip {
@@ -109,7 +108,6 @@ body {
 	}
 }
 
-/* ─── Custom scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar {
 	width: 6px;
 	height: 6px;
@@ -128,7 +126,6 @@ body {
 	background: rgba(255, 255, 255, 0.25);
 }
 
-/* hide horizontal scrollbar on carousels while keeping scroll */
 .scrollbar-hide::-webkit-scrollbar {
 	display: none;
 }

@@ -7,11 +7,11 @@ const homeStore = useHomeStore();
 
 <template>
   <div>
-    <div v-if="homeStore.isLoading" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+    <div v-if="homeStore.isLoading" class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
       <div
           v-for="i in 8"
           :key="i"
-          class="glass motion-pulse-soft p-4 h-28"
+          class="glass motion-pulse-soft h-24 p-3"
       ></div>
     </div>
 
@@ -20,7 +20,7 @@ const homeStore = useHomeStore();
       {{ homeStore.error }}
     </div>
 
-    <div v-else class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+    <div v-else class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
       <DeviceCard v-for="device in homeStore.devices" :key="device.id" :device="device"/>
     </div>
   </div>

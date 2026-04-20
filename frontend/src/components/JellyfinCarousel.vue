@@ -84,17 +84,17 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <p class="glass-section-label mb-4">{{ title }}</p>
+    <p class="glass-section-label mb-3">{{ title }}</p>
 
     <div v-if="isLoading" class="relative">
-      <div class="flex gap-4 overflow-x-auto pb-2 motion-fade-in snap-x snap-mandatory">
+      <div class="flex gap-3 overflow-x-auto pb-2 motion-fade-in snap-x snap-mandatory">
         <div
             v-for="i in 8"
             :key="i"
-            class="flex-none w-36 rounded-[1.45rem] border border-white/10 bg-white/[0.05] motion-pulse-soft snap-start"
+            class="flex-none w-32 rounded-[1.35rem] border border-white/10 bg-white/[0.05] motion-pulse-soft snap-start"
         >
           <div class="aspect-[2/3] bg-white/5"></div>
-          <div class="p-2.5 space-y-1.5">
+          <div class="space-y-1.5 p-2">
             <div class="h-2.5 bg-white/10 rounded-full"></div>
             <div class="h-2.5 w-2/3 bg-white/10 rounded-full"></div>
           </div>
@@ -115,7 +115,7 @@ onUnmounted(() => {
     <div v-else class="relative">
       <div
           ref="carouselRef"
-          class="flex gap-4 overflow-x-auto pb-2 motion-fade-in snap-x snap-mandatory"
+          class="flex gap-3 overflow-x-auto pb-2 motion-fade-in snap-x snap-mandatory"
           @scroll="updateRightFade"
           @wheel="onWheelScroll"
       >
@@ -123,12 +123,12 @@ onUnmounted(() => {
             v-for="item in items"
             :key="item.id"
             :item="item"
-            class="flex-none w-36 snap-start"
+            class="flex-none w-32 snap-start"
         />
       </div>
       <div
           v-if="showRightFade"
-          class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-[#0b0b0c] to-transparent"
+          class="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-[#0b0b0c] to-transparent"
       />
     </div>
 
