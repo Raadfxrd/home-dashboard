@@ -92,13 +92,15 @@ onUnmounted(() => {
       <section class="glass-section motion-fade-in space-y-8">
         <p class="glass-section-label">Media</p>
         <JellyfinCarousel
-            :is-loading="jellyfinStore.isLoading"
+            :is-loading="jellyfinStore.continueLoading"
             :items="jellyfinStore.continueWatching"
+            :error="jellyfinStore.continueError"
             title="Continue Watching"
         />
         <JellyfinCarousel
-            :is-loading="jellyfinStore.isLoading"
+            :is-loading="jellyfinStore.recentLoading"
             :items="jellyfinStore.recentlyAdded"
+            :error="jellyfinStore.recentError"
             title="Recently Added"
         />
       </section>

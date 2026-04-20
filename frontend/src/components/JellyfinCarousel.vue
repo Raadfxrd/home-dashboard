@@ -5,6 +5,7 @@ defineProps({
   title: {type: String, required: true},
   items: {type: Array, default: () => []},
   isLoading: {type: Boolean, default: false},
+  error: {type: String, default: null},
 });
 </script>
 
@@ -24,6 +25,11 @@ defineProps({
           <div class="h-2.5 w-2/3 bg-white/10 rounded-full"></div>
         </div>
       </div>
+    </div>
+
+    <div v-else-if="error"
+         class="glass py-6 px-5 text-red-300/80 text-xs tracking-wide text-center">
+      {{ error }}
     </div>
 
     <div v-else-if="!items.length"

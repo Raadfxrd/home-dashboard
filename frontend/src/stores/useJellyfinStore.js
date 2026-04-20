@@ -5,28 +5,43 @@ import {get} from '../composables/useApi.js';
 export const useJellyfinStore = defineStore('jellyfin', () => {
 	const continueWatching = ref([]);
 	const recentlyAdded = ref([]);
-	const isLoading = ref(false);
-	const error = ref(null);
+	const continueLoading = ref(false);
+	const recentLoading = ref(false);
+	const continueError = ref(null);
+	const recentError = ref(null);
 
 	async function fetchContinueWatching() {
-		isLoading.value = true;
-		error.value = null;
+		continueLoading.value = true;
+		continueError.value = null;
 		try {
 			continueWatching.value = await get('/jellyfin/continue');
 		} catch (err) {
-			error.value = err.response?.data?.error || 'Failed to load continue watching';
+			continueError.value = err.response?.data?.error || 'Failed to load continue watching';
 		} finally {
-			isLoading.value = false;
+			continueLoading.value = false;
 		}
 	}
 
 	async function fetchRecentlyAdded() {
+		recentLoading.value = true;
+		recentError.value = null;
 		try {
 			recentlyAdded.value = await get('/jellyfin/recent');
 		} catch (err) {
-			error.value = err.response?.data?.error || 'Failed to load recently added';
+			recentError.value = err.response?.data?.error || 'Failed to load recently added';
+		} finally {
+			recentLoading.value = false;
 		}
 	}
 
-	return {continueWatching, recentlyAdded, isLoading, error, fetchContinueWatching, fetchRecentlyAdded};
+	return {
+		continueWatching,
+		recentlyAdded,
+		continueLoading,
+		recentLoading,
+		continueError,
+		recentError,
+		fetchContinueWatching,
+		fetchRecentlyAdded,
+	};
 });
