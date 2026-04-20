@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs');
 
 const router = express.Router();
 
@@ -16,7 +17,9 @@ const QBITTORRENT_STATUS_PATH = process.env.QBITTORRENT_STATUS_PATH || '/api/v2/
 const NZBGET_URL = process.env.NZBGET_URL || '';
 const NZBGET_USERNAME = process.env.NZBGET_USERNAME || '';
 const NZBGET_PASSWORD = process.env.NZBGET_PASSWORD || '';
-const NZBGET_STATUS_PATH = process.env.NZBGET_STATUS_PATH || '/';
+const NZBGET_STATUS_PATH = process.env.NZBGET_STATUS_PATH || '/jsonrpc';
+const NAS_USAGE_PATH = process.env.NAS_USAGE_PATH || '';
+const NAS_USAGE_LABEL = process.env.NAS_USAGE_LABEL || 'NAS';
 
 let homebridgeToken = null;
 let tokenExpiry = 0;
@@ -286,6 +289,276 @@ function buildSummary(items = [], configured = false, online = false) {
 	};
 }
 
+function toNumber(value, fallback = 0) {
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatBytes(bytes) {
+	const value = toNumber(bytes, 0);
+	if (!Number.isFinite(value) || value < 0) return '0 B';
+	if (value < 1024) return `${Math.round(value)} B`;
+	const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+	let current = value / 1024;
+	let unitIndex = 0;
+	while (current >= 1024 && unitIndex < units.length - 1) {
+		current /= 1024;
+		unitIndex += 1;
+	}
+	return `${current >= 10 ? current.toFixed(0) : current.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function buildNasSummary(path, stats) {
+	const totalBytes = Number(stats.bsize) * Number(stats.blocks);
+	const freeBytes = Number(stats.bsize) * Number(stats.bavail);
+	const usedBytes = Math.max(totalBytes - freeBytes, 0);
+	const usedPercent = totalBytes > 0 ? Math.min(100, Math.max(0, Math.round((usedBytes / totalBytes) * 100))) : 0;
+
+	return {
+		configured: true,
+		online: true,
+		label: NAS_USAGE_LABEL,
+		path,
+		totalBytes,
+		usedBytes,
+		freeBytes,
+		usedPercent,
+		formattedTotal: formatBytes(totalBytes),
+		formattedUsed: formatBytes(usedBytes),
+		formattedFree: formatBytes(freeBytes),
+	};
+}
+
+function mapQbittorrentDownload(torrent) {
+	const progress = clamp(Math.round(toNumber(torrent.progress, 0) * 100), 0, 100);
+	return {
+		id: torrent.hash || torrent.name,
+		name: torrent.name || 'Unnamed download',
+		progress,
+		sizeBytes: toNumber(torrent.size, 0),
+		downloadedBytes: toNumber(torrent.downloaded, 0),
+		remainingBytes: toNumber(torrent.amount_left, 0),
+		speedBytesPerSecond: toNumber(torrent.dlspeed, 0),
+		etaSeconds: Number.isFinite(Number(torrent.eta)) ? Number(torrent.eta) : null,
+		state: torrent.state || 'unknown',
+		category: torrent.category || torrent.tags || null,
+	};
+}
+
+function mapNzbgetDownload(group) {
+	const totalBytes = toNumber(group.FileSizeMB ?? group.fileSizeMB ?? group.SizeMB ?? group.sizeMB, 0) * 1024 * 1024;
+	const downloadedBytes = toNumber(group.DownloadedSizeMB ?? group.downloadedSizeMB ?? group.CompletedSizeMB ?? group.completedSizeMB, 0) * 1024 * 1024;
+	const remainingBytes = toNumber(group.RemainingSizeMB ?? group.remainingSizeMB, Math.max(totalBytes - downloadedBytes, 0)) * 1024 * 1024;
+	const progress = totalBytes > 0 ? Math.min(100, Math.max(0, Math.round((downloadedBytes / totalBytes) * 100))) : 0;
+	const activeDownloads = toNumber(group.ActiveDownloads ?? group.activeDownloads, 0);
+	const speedBytesPerSecond = toNumber(group.DLRate ?? group.downloadRate ?? group.Speed ?? group.speed, 0) * 1024;
+	const etaSeconds = toNumber(group.RemainingSec ?? group.remainingSec ?? group.eta ?? group.ETA, null);
+
+	return {
+		id: group.NZBID || group.id || group.NzbId || group.name,
+		name: group.NZBName || group.nzbName || group.Name || group.name || 'Unnamed download',
+		progress,
+		sizeBytes: totalBytes,
+		downloadedBytes,
+		remainingBytes,
+		speedBytesPerSecond,
+		etaSeconds: Number.isFinite(Number(etaSeconds)) ? Number(etaSeconds) : null,
+		state: group.Status || group.status || 'unknown',
+		category: group.Category || group.category || null,
+		activeDownloads,
+	};
+}
+
+async function getQbittorrentCookie() {
+	const loginUrl = buildServiceUrl(QBITTORRENT_URL, '/api/v2/auth/login');
+	if (!loginUrl) return null;
+	if (!QBITTORRENT_USERNAME || !QBITTORRENT_PASSWORD) {
+		throw new Error('Missing credentials');
+	}
+
+	const loginBody = new URLSearchParams({
+		username: QBITTORRENT_USERNAME,
+		password: QBITTORRENT_PASSWORD,
+	});
+
+	const loginResponse = await axios.post(loginUrl, loginBody.toString(), {
+		headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+		timeout: 5000,
+		validateStatus: () => true,
+	});
+
+	if (loginResponse.status < 200 || loginResponse.status >= 400) {
+		throw new Error(`Login HTTP ${loginResponse.status}`);
+	}
+
+	const cookie = (loginResponse.headers['set-cookie'] || []).map((value) => value.split(';')[0]).join('; ');
+	if (!cookie) {
+		throw new Error('Missing session cookie');
+	}
+
+	return cookie;
+}
+
+async function getNzbgetRpcResult(method, params = []) {
+	const targetUrl = buildServiceUrl(NZBGET_URL, NZBGET_STATUS_PATH);
+	if (!targetUrl) return {configured: false, online: false, result: null, error: 'Not configured'};
+	if (!NZBGET_USERNAME || !NZBGET_PASSWORD) return {
+		configured: false,
+		online: false,
+		result: null,
+		error: 'Missing credentials'
+	};
+
+	const response = await axios.post(
+		targetUrl,
+		{method, params, id: 'home-dashboard', jsonrpc: '2.0'},
+		{
+			auth: {username: NZBGET_USERNAME, password: NZBGET_PASSWORD},
+			timeout: 5000,
+			validateStatus: () => true,
+		}
+	);
+
+	if (response.status < 200 || response.status >= 400) {
+		throw new Error(`HTTP ${response.status}`);
+	}
+
+	if (response.data?.error) {
+		throw new Error(response.data.error.message || 'NZBGet RPC error');
+	}
+
+	return {configured: true, online: true, result: response.data?.result ?? null, error: null};
+}
+
+async function fetchQbittorrentDownloads() {
+	const targetUrl = buildServiceUrl(QBITTORRENT_URL, '/api/v2/torrents/info');
+	if (!targetUrl) {
+		return {name: 'qbittorrent', configured: false, online: false, downloads: [], error: 'Not configured'};
+	}
+	if (!QBITTORRENT_USERNAME || !QBITTORRENT_PASSWORD) {
+		return {name: 'qbittorrent', configured: false, online: false, downloads: [], error: 'Missing credentials'};
+	}
+
+	const startedAt = Date.now();
+	try {
+		const cookie = await getQbittorrentCookie();
+		const response = await axios.get(targetUrl, {
+			headers: cookie ? {Cookie: cookie} : {},
+			params: {filter: 'downloading'},
+			timeout: 5000,
+			validateStatus: () => true,
+		});
+
+		if (response.status < 200 || response.status >= 400 || !Array.isArray(response.data)) {
+			return {
+				name: 'qbittorrent',
+				configured: true,
+				online: false,
+				statusCode: response.status,
+				latencyMs: Date.now() - startedAt,
+				downloads: [],
+				error: `HTTP ${response.status}`,
+			};
+		}
+
+		return {
+			name: 'qbittorrent',
+			configured: true,
+			online: true,
+			statusCode: response.status,
+			latencyMs: Date.now() - startedAt,
+			downloads: response.data.map(mapQbittorrentDownload).slice(0, 5),
+			error: null,
+		};
+	} catch (err) {
+		return {
+			name: 'qbittorrent',
+			configured: true,
+			online: false,
+			statusCode: err.response?.status || null,
+			latencyMs: Date.now() - startedAt,
+			downloads: [],
+			error: err.message,
+		};
+	}
+}
+
+async function fetchNzbgetDownloads() {
+	const startedAt = Date.now();
+	try {
+		const rpc = await getNzbgetRpcResult('listgroups');
+		if (!rpc.configured) {
+			return {name: 'nzbget', configured: false, online: false, downloads: [], error: rpc.error};
+		}
+
+		const groups = Array.isArray(rpc.result) ? rpc.result : [];
+		const downloads = groups
+			.filter((group) => {
+				const status = String(group?.Status || group?.status || '').toLowerCase();
+				const activeDownloads = toNumber(group?.ActiveDownloads ?? group?.activeDownloads, 0);
+				return status.includes('download') || status.includes('fetch') || activeDownloads > 0;
+			})
+			.map(mapNzbgetDownload)
+			.slice(0, 5);
+
+		return {
+			name: 'nzbget',
+			configured: true,
+			online: true,
+			statusCode: 200,
+			latencyMs: Date.now() - startedAt,
+			downloads,
+			error: null,
+		};
+	} catch (err) {
+		return {
+			name: 'nzbget',
+			configured: true,
+			online: false,
+			statusCode: err.response?.status || null,
+			latencyMs: Date.now() - startedAt,
+			downloads: [],
+			error: err.message,
+		};
+	}
+}
+
+async function probeNasUsage() {
+	if (!NAS_USAGE_PATH) {
+		return {
+			name: NAS_USAGE_LABEL,
+			configured: false,
+			online: false,
+			path: null,
+			totalBytes: null,
+			usedBytes: null,
+			freeBytes: null,
+			usedPercent: null,
+			error: 'Not configured',
+		};
+	}
+
+	try {
+		const stats = await fs.promises.statfs(NAS_USAGE_PATH);
+		return {
+			name: NAS_USAGE_LABEL,
+			...buildNasSummary(NAS_USAGE_PATH, stats),
+		};
+	} catch (err) {
+		return {
+			name: NAS_USAGE_LABEL,
+			configured: true,
+			online: false,
+			path: NAS_USAGE_PATH,
+			totalBytes: null,
+			usedBytes: null,
+			freeBytes: null,
+			usedPercent: null,
+			error: err.message,
+		};
+	}
+}
+
 async function tryFetchProwlarrList(baseUrl, apiKey, path) {
 	const url = buildServiceUrl(baseUrl, path);
 	if (!url) return [];
@@ -374,32 +647,9 @@ async function probeQbittorrent() {
 	}
 
 	const startedAt = Date.now();
-	const loginUrl = buildServiceUrl(QBITTORRENT_URL, '/api/v2/auth/login');
 
 	try {
-		const loginBody = new URLSearchParams({
-			username: QBITTORRENT_USERNAME,
-			password: QBITTORRENT_PASSWORD,
-		});
-
-		const loginResponse = await axios.post(loginUrl, loginBody.toString(), {
-			headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-			timeout: 5000,
-			validateStatus: () => true,
-		});
-
-		if (loginResponse.status < 200 || loginResponse.status >= 400) {
-			return {
-				name: 'qbittorrent',
-				configured: true,
-				online: false,
-				statusCode: loginResponse.status,
-				latencyMs: Date.now() - startedAt,
-				error: `Login HTTP ${loginResponse.status}`,
-			};
-		}
-
-		const cookie = (loginResponse.headers['set-cookie'] || []).map((value) => value.split(';')[0]).join('; ');
+		const cookie = await getQbittorrentCookie();
 		const statusResponse = await axios.get(targetUrl, {
 			headers: cookie ? {Cookie: cookie} : {},
 			timeout: 5000,
@@ -440,36 +690,26 @@ async function probeNzbget() {
 		};
 	}
 
-	if (!NZBGET_USERNAME || !NZBGET_PASSWORD) {
-		return {
-			name: 'nzbget',
-			configured: false,
-			online: false,
-			statusCode: null,
-			latencyMs: null,
-			error: 'Missing credentials',
-		};
-	}
-
-	const startedAt = Date.now();
 	try {
-		const response = await axios.get(targetUrl, {
-			auth: {
-				username: NZBGET_USERNAME,
-				password: NZBGET_PASSWORD,
-			},
-			timeout: 5000,
-			validateStatus: () => true,
-		});
+		const rpc = await getNzbgetRpcResult('status');
+		if (!rpc.configured) {
+			return {
+				name: 'nzbget',
+				configured: false,
+				online: false,
+				statusCode: null,
+				latencyMs: null,
+				error: rpc.error,
+			};
+		}
 
-		const online = response.status >= 200 && response.status < 400;
 		return {
 			name: 'nzbget',
 			configured: true,
-			online,
-			statusCode: response.status,
-			latencyMs: Date.now() - startedAt,
-			error: online ? null : `HTTP ${response.status}`,
+			online: true,
+			statusCode: 200,
+			latencyMs: 0,
+			error: null,
 		};
 	} catch (err) {
 		return {
@@ -477,7 +717,7 @@ async function probeNzbget() {
 			configured: true,
 			online: false,
 			statusCode: err.response?.status || null,
-			latencyMs: Date.now() - startedAt,
+			latencyMs: null,
 			error: err.message,
 		};
 	}
@@ -714,11 +954,23 @@ router.post('/color', async (req, res) => {
 });
 
 router.get('/services-status', async (_req, res) => {
-	const [prowlarrDetails, qbittorrentClient, nzbgetClient] = await Promise.all([
+	const [prowlarrDetails, qbittorrentClient, nzbgetClient, qbittorrentDownloads, nzbgetDownloads, nasUsage] = await Promise.all([
 		fetchProwlarrDetails(),
 		probeQbittorrent(),
 		probeNzbget(),
+		fetchQbittorrentDownloads(),
+		fetchNzbgetDownloads(),
+		probeNasUsage(),
 	]);
+
+	const downloadActivity = buildSummary(
+		mergeClientLists([
+			qbittorrentDownloads,
+			nzbgetDownloads,
+		]),
+		Boolean(qbittorrentDownloads.configured || nzbgetDownloads.configured),
+		Boolean(qbittorrentDownloads.online || nzbgetDownloads.online)
+	);
 
 	const explicitClients = mergeClientLists([], [
 		mapProbeToClientItem(qbittorrentClient, 'qBittorrent'),
@@ -735,7 +987,8 @@ router.get('/services-status', async (_req, res) => {
 		prowlarr: prowlarrDetails.prowlarr,
 		indexers: prowlarrDetails.indexers,
 		downloadClients: downloadClientsSummary,
-		// Backward-compatible summary keys
+		downloadActivity,
+		nasUsage,
 		indexer: {
 			configured: prowlarrDetails.prowlarr.configured,
 			online: prowlarrDetails.prowlarr.online,

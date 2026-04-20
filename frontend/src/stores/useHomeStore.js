@@ -13,6 +13,16 @@ export const useHomeStore = defineStore('home', () => {
 		downloadClient: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
 		indexers: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
 		downloadClients: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
+		downloadActivity: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
+		nasUsage: {
+			configured: false,
+			online: false,
+			path: null,
+			totalBytes: null,
+			usedBytes: null,
+			freeBytes: null,
+			usedPercent: null
+		},
 	});
 
 	function notify(type, message) {
@@ -117,6 +127,8 @@ export const useHomeStore = defineStore('home', () => {
 				downloadClient: payload?.downloadClient || serviceStatus.value.downloadClient,
 				indexers: payload?.indexers || serviceStatus.value.indexers,
 				downloadClients: payload?.downloadClients || serviceStatus.value.downloadClients,
+				downloadActivity: payload?.downloadActivity || serviceStatus.value.downloadActivity,
+				nasUsage: payload?.nasUsage || serviceStatus.value.nasUsage,
 			};
 		} catch (err) {
 			serviceStatus.value = {
@@ -128,6 +140,11 @@ export const useHomeStore = defineStore('home', () => {
 				},
 				downloadClient: {
 					...serviceStatus.value.downloadClient,
+					online: false,
+					error: err.response?.data?.error || err.message || 'Status check failed',
+				},
+				nasUsage: {
+					...serviceStatus.value.nasUsage,
 					online: false,
 					error: err.response?.data?.error || err.message || 'Status check failed',
 				},

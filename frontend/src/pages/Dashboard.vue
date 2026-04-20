@@ -36,6 +36,41 @@ function summaryLabel(summary, label) {
   return `${label}: ${summary.onlineCount}/${summary.total} online`;
 }
 
+function formatBytes(bytes) {
+  if (bytes === null || bytes === undefined) return '—';
+  const value = Number(bytes);
+  if (!Number.isFinite(value)) return '—';
+  if (value < 1024) return `${Math.round(value)} B`;
+
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let current = value / 1024;
+  let unitIndex = 0;
+
+  while (current >= 1024 && unitIndex < units.length - 1) {
+    current /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${current >= 10 ? current.toFixed(0) : current.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined) return '—';
+  const value = Number(seconds);
+  if (!Number.isFinite(value) || value < 0) return '—';
+  if (value === 0) return 'now';
+
+  const totalMinutes = Math.floor(value / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  return `${Math.max(1, totalMinutes)}m`;
+}
+
 function updateClock() {
   const now = new Date();
   clock.value = now.toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
@@ -90,11 +125,11 @@ onUnmounted(() => {
     </header>
 
     <main
-        class="relative z-10 grid flex-1 min-h-0 w-full gap-4 px-4 pb-6 pt-4 md:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] md:grid-rows-[auto_minmax(0,1fr)] md:items-stretch md:gap-4 md:px-6 lg:gap-5 lg:px-8 lg:pt-5">
+        class="relative z-10 w-full flex-1 px-3 pb-4 pt-3 md:columns-2 md:gap-3 md:px-5 md:pt-4 lg:px-6 lg:pt-4">
 
-      <section class="glass-section motion-fade-in min-h-0 md:col-start-1 md:row-start-1">
-        <p class="glass-section-label mb-3">Weather</p>
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section class="glass-section masonry-item motion-fade-in mb-3 h-fit">
+        <p class="glass-section-label mb-2">Weather</p>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <WeatherCard
               :is-loading="weatherStore.isLoading"
               :weather="weatherStore.amsterdamWeather"
@@ -108,12 +143,66 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <section class="glass-section motion-fade-in h-fit md:col-start-1 md:row-start-2">
-        <p class="glass-section-label mb-3">Home</p>
+      <section class="glass-section masonry-item motion-fade-in mb-3 h-fit min-h-0">
+        <p class="glass-section-label mb-2">Home</p>
         <HomeKitPanel/>
       </section>
 
-      <section class="glass-section motion-fade-in h-fit space-y-4 md:col-start-2 md:row-span-2">
+      <section class="glass-section masonry-item motion-fade-in mb-3 min-h-0">
+        <div class="mb-2 flex items-center justify-between gap-3">
+          <p class="glass-section-label">Download activity</p>
+          <span
+              class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45">
+            {{ summaryLabel(homeStore.serviceStatus.downloadActivity, 'Downloads') }}
+          </span>
+        </div>
+
+        <div v-if="homeStore.serviceStatus.downloadActivity.items?.length" class="grid gap-2.5 sm:grid-cols-2">
+          <article
+              v-for="client in homeStore.serviceStatus.downloadActivity.items"
+              :key="client.id || client.name"
+              class="rounded-2xl border border-white/10 bg-white/[0.04] p-3"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-medium text-white/90">{{ client.name }}</div>
+                <div :class="client.online ? 'text-emerald-200' : 'text-amber-200'" class="mt-0.5 text-[11px]">
+                  {{ client.online ? 'Online' : client.error || 'Offline' }}
+                </div>
+              </div>
+              <span
+                  class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white/55">
+                {{ client.downloads?.length || 0 }} active
+              </span>
+            </div>
+
+            <div v-if="client.downloads?.length" class="mt-2.5 space-y-2">
+              <div v-for="download in client.downloads" :key="download.id || download.name"
+                   class="space-y-1.5 rounded-xl bg-black/10 p-2.5">
+                <div class="flex items-center justify-between gap-3 text-xs">
+                  <span class="truncate text-white/90">{{ download.name }}</span>
+                  <span class="shrink-0 text-white/45">{{ download.progress }}%</span>
+                </div>
+                <div class="h-1.5 overflow-hidden rounded-full bg-white/10">
+                  <div class="h-full rounded-full bg-white/80" :style="{width: `${download.progress || 0}%`}"></div>
+                </div>
+                <div class="flex items-center justify-between gap-3 text-[10px] text-white/40">
+                  <span>{{ formatBytes(download.speedBytesPerSecond) }}/s</span>
+                  <span>{{ formatDuration(download.etaSeconds) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="mt-3 text-xs text-white/35">No active downloads right now.</div>
+          </article>
+        </div>
+
+        <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm text-white/35">
+          No download activity detected yet.
+        </div>
+      </section>
+
+      <section class="glass-section masonry-item motion-fade-in mb-3 h-fit min-h-0 space-y-3">
         <div class="flex items-center justify-between gap-3">
           <p class="glass-section-label">Media</p>
           <RouterLink
@@ -135,6 +224,47 @@ onUnmounted(() => {
             :error="jellyfinStore.recentError"
             title="Recently added"
         />
+      </section>
+
+      <section class="glass-section masonry-item motion-fade-in mb-3 min-h-0">
+        <div class="mb-2 flex items-center justify-between gap-3">
+          <p class="glass-section-label">NAS usage</p>
+          <span
+              class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45">
+            {{
+              homeStore.serviceStatus.nasUsage.configured ? `${homeStore.serviceStatus.nasUsage.usedPercent}% used` : 'Not configured'
+            }}
+          </span>
+        </div>
+
+        <div v-if="homeStore.serviceStatus.nasUsage.configured" class="space-y-3">
+          <div class="flex items-end justify-between gap-4">
+            <div>
+              <div class="text-3xl font-semibold tracking-tight text-white/95">
+                {{ homeStore.serviceStatus.nasUsage.usedPercent ?? 0 }}%
+              </div>
+              <div class="mt-1 text-xs text-white/45">
+                {{ homeStore.serviceStatus.nasUsage.label }} · {{ homeStore.serviceStatus.nasUsage.path }}
+              </div>
+            </div>
+            <div class="text-right text-[11px] text-white/50">
+              <div>{{ formatBytes(homeStore.serviceStatus.nasUsage.usedBytes) }} used</div>
+              <div>{{ formatBytes(homeStore.serviceStatus.nasUsage.freeBytes) }} free</div>
+              <div>{{ formatBytes(homeStore.serviceStatus.nasUsage.totalBytes) }} total</div>
+            </div>
+          </div>
+
+          <div class="h-2 overflow-hidden rounded-full bg-white/10">
+            <div
+                class="h-full rounded-full bg-white/80 transition-all duration-300"
+                :style="{width: `${homeStore.serviceStatus.nasUsage.usedPercent || 0}%`}"
+            ></div>
+          </div>
+        </div>
+
+        <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm text-white/35">
+          Set `NAS_USAGE_PATH` on the backend to show disk usage here.
+        </div>
       </section>
 
     </main>
@@ -201,3 +331,12 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.masonry-item {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  page-break-inside: avoid;
+}
+</style>
+
