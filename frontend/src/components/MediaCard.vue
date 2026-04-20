@@ -7,7 +7,8 @@ defineProps({
 </script>
 
 <template>
-  <div class="glass motion-fade-in overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/[0.085]">
+  <div
+      class="media-card motion-fade-in overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-0.5 hover:bg-white/[0.085]">
     <div class="relative aspect-[2/3] bg-white/5">
       <img
           v-if="item.poster"
@@ -40,3 +41,15 @@ defineProps({
 
   </div>
 </template>
+
+<style scoped>
+.media-card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 1.45rem;
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  box-shadow: none;
+}
+</style>
+

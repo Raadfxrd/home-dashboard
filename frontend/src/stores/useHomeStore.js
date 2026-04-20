@@ -29,6 +29,7 @@ export const useHomeStore = defineStore('home', () => {
 
 	async function toggleDevice(deviceId, state) {
 		const device = findDevice(deviceId);
+		if (!device?.canToggle) return;
 		if (device) device.state = state;
 		try {
 			await post('/home/toggle', {deviceId, state});
@@ -38,5 +39,54 @@ export const useHomeStore = defineStore('home', () => {
 		}
 	}
 
-	return {devices, isLoading, error, fetchDevices, toggleDevice};
+	async function setBrightness(deviceId, brightness) {
+		const device = findDevice(deviceId);
+		if (!device?.supportsBrightness) return;
+
+		const previousBrightness = device.brightness;
+		const previousState = device.state;
+		const normalized = Math.max(0, Math.min(100, Math.round(Number(brightness))));
+
+		device.brightness = normalized;
+		if (normalized > 0) {
+			device.state = true;
+		}
+
+		try {
+			await post('/home/brightness', {deviceId, brightness: normalized});
+		} catch (err) {
+			device.brightness = previousBrightness;
+			device.state = previousState;
+			console.error('Brightness update failed:', err.message);
+		}
+	}
+
+	async function setColor(deviceId, color) {
+		const device = findDevice(deviceId);
+		if (!device?.supportsColor) return;
+
+		const previousColor = device.color;
+		const previousState = device.state;
+		device.color = color;
+		device.state = true;
+
+		try {
+			const response = await post('/home/color', {deviceId, color});
+			if (response?.color) {
+				device.color = response.color;
+			}
+			if (typeof response?.hue === 'number') {
+				device.hue = response.hue;
+			}
+			if (typeof response?.saturation === 'number') {
+				device.saturation = response.saturation;
+			}
+		} catch (err) {
+			device.color = previousColor;
+			device.state = previousState;
+			console.error('Color update failed:', err.message);
+		}
+	}
+
+	return {devices, isLoading, error, fetchDevices, toggleDevice, setBrightness, setColor};
 });

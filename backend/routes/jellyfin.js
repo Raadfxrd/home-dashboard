@@ -8,6 +8,39 @@ const JELLYFIN_API_KEY = process.env.JELLYFIN_API_KEY || '';
 const JELLYFIN_USER_ID = process.env.JELLYFIN_USER_ID || '';
 let resolvedUserId = null;
 
+const SUGGESTED_TITLE_GROUPS = [
+	['inception'],
+	['interstellar'],
+	['the dark knight'],
+	['the dark knight rises'],
+	['breaking bad'],
+	['game of thrones'],
+	['the office'],
+	['the wire'],
+	['true detective'],
+	['the sopranos'],
+	['silo'],
+	['the batman'],
+	['oppenheimer'],
+	['dune'],
+	['dune part two', 'dune part 2'],
+	['blade runner 2049'],
+	['the lord of the rings'],
+	['the matrix'],
+	['avatar'],
+	['stranger things'],
+	['the last of us'],
+	['severance'],
+	['house of the dragon'],
+	['the bear'],
+	['arcane'],
+	['andor'],
+	['foundation'],
+];
+
+const SUGGESTED_MAX_ITEMS = 18;
+const SUGGESTED_MIN_SERIES = 5;
+
 function maskIdentifier(value) {
 	if (!value) {
 		return 'missing';
@@ -28,6 +61,14 @@ function getErrorDetails(err) {
 
 function logJellyfin(event, details = {}) {
 	console.log('[Jellyfin]', event, details);
+}
+
+function normalizeTitle(value = '') {
+	return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function isSeries(item) {
+	return item?.Type === 'Series';
 }
 
 function jellyfinHeaders() {
@@ -103,6 +144,111 @@ function mapItems(items = []) {
 		progress: 0,
 	}));
 }
+
+function pickSuggestedItems(items = []) {
+	const normalizedItems = items.map((item) => ({
+		item,
+		normalizedTitle: normalizeTitle(item.Name || ''),
+	}));
+
+	const selected = [];
+	const selectedIds = new Set();
+
+	for (const aliases of SUGGESTED_TITLE_GROUPS) {
+		const match = normalizedItems
+			.find(({normalizedTitle, item}) => {
+				if (!normalizedTitle || selectedIds.has(item.Id)) {
+					return false;
+				}
+				return aliases.some((alias) => {
+					const needle = normalizeTitle(alias);
+					return normalizedTitle === needle || normalizedTitle.includes(needle) || needle.includes(normalizedTitle);
+				});
+			});
+
+		if (match) {
+			selected.push(match.item);
+			selectedIds.add(match.item.Id);
+		}
+	}
+
+	const selectedSeriesCount = selected.filter(isSeries).length;
+	if (selectedSeriesCount < SUGGESTED_MIN_SERIES) {
+		for (const {item} of normalizedItems.filter(({item}) => isSeries(item))) {
+			if (selectedIds.has(item.Id)) {
+				continue;
+			}
+			selected.push(item);
+			selectedIds.add(item.Id);
+			if (selected.filter(isSeries).length >= SUGGESTED_MIN_SERIES) {
+				break;
+			}
+		}
+	}
+
+	for (const {item} of normalizedItems) {
+		if (selected.length >= SUGGESTED_MAX_ITEMS) {
+			break;
+		}
+		if (selectedIds.has(item.Id)) {
+			continue;
+		}
+		selected.push(item);
+		selectedIds.add(item.Id);
+	}
+
+	return selected.slice(0, SUGGESTED_MAX_ITEMS);
+}
+
+router.get('/suggested', async (_req, res) => {
+	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {
+		logJellyfin('suggested.skipped_missing_config', {
+			hasApiKey: Boolean(JELLYFIN_API_KEY),
+			hasUser: Boolean(JELLYFIN_USER_ID),
+		});
+		return res.status(503).json({error: 'Jellyfin API key or user is not configured'});
+	}
+
+	try {
+		const startedAt = Date.now();
+		logJellyfin('suggested.fetch_start', {userRef: maskIdentifier(JELLYFIN_USER_ID)});
+
+		const userId = await getResolvedUserId();
+		if (!userId) {
+			logJellyfin('suggested.fetch_failed_user_resolve', {userRef: maskIdentifier(JELLYFIN_USER_ID)});
+			return res.status(502).json({error: 'Failed to resolve Jellyfin user ID'});
+		}
+
+		const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			headers: jellyfinHeaders(),
+			params: {
+				Recursive: true,
+				Limit: 800,
+				IncludeItemTypes: 'Movie,Series',
+				Fields: 'PrimaryImageAspectRatio,ProductionYear',
+				SortBy: 'DateCreated',
+				SortOrder: 'Descending',
+				ImageTypeLimit: 1,
+				EnableImages: true,
+			},
+		});
+
+		const sourceItems = response.data?.Items || [];
+		const suggested = mapItems(pickSuggestedItems(sourceItems));
+
+		logJellyfin('suggested.fetch_success', {
+			status: response.status,
+			libraryItems: sourceItems.length,
+			suggestedItems: suggested.length,
+			durationMs: Date.now() - startedAt,
+		});
+
+		return res.json(suggested);
+	} catch (err) {
+		console.error('Jellyfin suggested error:', getErrorDetails(err));
+		return res.status(502).json({error: 'Failed to fetch suggested watches'});
+	}
+});
 
 router.get('/continue', async (_req, res) => {
 	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {

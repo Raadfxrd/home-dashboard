@@ -35,7 +35,7 @@ onMounted(() => {
 
   weatherStore.fetchAmsterdamWeather();
   homeStore.fetchDevices();
-  jellyfinStore.fetchContinueWatching();
+  jellyfinStore.fetchSuggestedWatches();
   jellyfinStore.fetchRecentlyAdded();
 });
 
@@ -92,10 +92,10 @@ onUnmounted(() => {
       <section class="glass-section motion-fade-in space-y-8">
         <p class="glass-section-label">Media</p>
         <JellyfinCarousel
-            :is-loading="jellyfinStore.continueLoading"
-            :items="jellyfinStore.continueWatching"
-            :error="jellyfinStore.continueError"
-            title="Continue Watching"
+            :is-loading="jellyfinStore.suggestedLoading"
+            :items="jellyfinStore.suggestedWatches"
+            :error="jellyfinStore.suggestedError"
+            title="Suggested Watches"
         />
         <JellyfinCarousel
             :is-loading="jellyfinStore.recentLoading"

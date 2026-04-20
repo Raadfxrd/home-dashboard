@@ -1,11 +1,45 @@
 <script setup>
+import {nextTick, onMounted, onUnmounted, ref, watch} from 'vue';
 import MediaCard from './MediaCard.vue';
 
-defineProps({
+const props = defineProps({
   title: {type: String, required: true},
   items: {type: Array, default: () => []},
   isLoading: {type: Boolean, default: false},
   error: {type: String, default: null},
+});
+
+const carouselRef = ref(null);
+const showRightFade = ref(false);
+
+function updateRightFade() {
+  const el = carouselRef.value;
+  if (!el) {
+    showRightFade.value = false;
+    return;
+  }
+
+  const hasOverflow = el.scrollWidth - el.clientWidth > 4;
+  const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 4;
+  showRightFade.value = hasOverflow && !atEnd;
+}
+
+watch(
+  () => [props.items.length, props.isLoading, props.error],
+  async () => {
+    await nextTick();
+    updateRightFade();
+  },
+  {immediate: true}
+);
+
+onMounted(() => {
+  window.addEventListener('resize', updateRightFade);
+  updateRightFade();
+});
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateRightFade);
 });
 </script>
 
@@ -13,17 +47,19 @@ defineProps({
   <div>
     <p class="glass-section-label mb-4">{{ title }}</p>
 
-    <div v-if="isLoading" class="flex gap-4 overflow-x-auto pb-2 scrollbar-hide motion-fade-in">
+    <div v-if="isLoading" class="relative">
+      <div class="flex gap-4 overflow-x-auto scroll-smooth pb-2 motion-fade-in snap-x snap-mandatory">
       <div
-          v-for="i in 6"
+          v-for="i in 8"
           :key="i"
-          class="flex-none w-36 glass motion-pulse-soft"
+          class="flex-none w-36 rounded-[1.45rem] border border-white/10 bg-white/[0.05] motion-pulse-soft snap-start"
       >
         <div class="aspect-[2/3] bg-white/5"></div>
         <div class="p-2.5 space-y-1.5">
           <div class="h-2.5 bg-white/10 rounded-full"></div>
           <div class="h-2.5 w-2/3 bg-white/10 rounded-full"></div>
         </div>
+      </div>
       </div>
     </div>
 
@@ -37,8 +73,18 @@ defineProps({
       Nothing to show here yet.
     </div>
 
-    <div v-else class="flex gap-4 overflow-x-auto pb-2 scrollbar-hide motion-fade-in">
-      <MediaCard v-for="item in items" :key="item.id" :item="item" class="flex-none w-36"/>
+    <div v-else class="relative">
+      <div
+          ref="carouselRef"
+          class="flex gap-4 overflow-x-auto scroll-smooth pb-2 motion-fade-in snap-x snap-mandatory"
+          @scroll="updateRightFade"
+      >
+        <MediaCard v-for="item in items" :key="item.id" :item="item" class="flex-none w-36 snap-start"/>
+      </div>
+      <div
+          v-if="showRightFade"
+          class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-[#0b0b0c] to-transparent"
+      />
     </div>
   </div>
 </template>

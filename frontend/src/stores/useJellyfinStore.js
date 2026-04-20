@@ -3,22 +3,22 @@ import {ref} from 'vue';
 import {get} from '../composables/useApi.js';
 
 export const useJellyfinStore = defineStore('jellyfin', () => {
-	const continueWatching = ref([]);
+	const suggestedWatches = ref([]);
 	const recentlyAdded = ref([]);
-	const continueLoading = ref(false);
+	const suggestedLoading = ref(false);
 	const recentLoading = ref(false);
-	const continueError = ref(null);
+	const suggestedError = ref(null);
 	const recentError = ref(null);
 
-	async function fetchContinueWatching() {
-		continueLoading.value = true;
-		continueError.value = null;
+	async function fetchSuggestedWatches() {
+		suggestedLoading.value = true;
+		suggestedError.value = null;
 		try {
-			continueWatching.value = await get('/jellyfin/continue');
+			suggestedWatches.value = await get('/jellyfin/suggested');
 		} catch (err) {
-			continueError.value = err.response?.data?.error || 'Failed to load continue watching';
+			suggestedError.value = err.response?.data?.error || 'Failed to load suggested watches';
 		} finally {
-			continueLoading.value = false;
+			suggestedLoading.value = false;
 		}
 	}
 
@@ -35,13 +35,13 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 	}
 
 	return {
-		continueWatching,
+		suggestedWatches,
 		recentlyAdded,
-		continueLoading,
+		suggestedLoading,
 		recentLoading,
-		continueError,
+		suggestedError,
 		recentError,
-		fetchContinueWatching,
+		fetchSuggestedWatches,
 		fetchRecentlyAdded,
 	};
 });
