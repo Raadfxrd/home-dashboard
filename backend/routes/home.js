@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const fs = require('fs');
+const snmp = require('net-snmp');
 
 const router = express.Router();
 
@@ -20,15 +21,54 @@ const NZBGET_PASSWORD = process.env.NZBGET_PASSWORD || '';
 const NZBGET_STATUS_PATH = process.env.NZBGET_STATUS_PATH || '/jsonrpc';
 const NAS_USAGE_PATH = process.env.NAS_USAGE_PATH || '';
 const NAS_USAGE_LABEL = process.env.NAS_USAGE_LABEL || 'NAS';
+const NAS_METRICS_MODE = String(process.env.NAS_METRICS_MODE || '').trim().toLowerCase();
+const NAS_SNMP_HOST = String(process.env.NAS_SNMP_HOST || '').trim();
+const NAS_SNMP_PORT = Number(process.env.NAS_SNMP_PORT || 161);
+const NAS_SNMP_VERSION = String(process.env.NAS_SNMP_VERSION || '2c').trim().toLowerCase();
+const NAS_SNMP_COMMUNITY = process.env.NAS_SNMP_COMMUNITY || 'public';
+const NAS_SNMP_TIMEOUT_MS = Number(process.env.NAS_SNMP_TIMEOUT_MS || 3500);
+const NAS_SNMP_RETRIES = Number(process.env.NAS_SNMP_RETRIES || 1);
+const NAS_NETWORK_INTERFACES = String(process.env.NAS_NETWORK_INTERFACES || '')
+	.split(',')
+	.map((item) => item.trim())
+	.filter(Boolean);
+const NAS_METRICS_CACHE_TTL_MS = Number(process.env.NAS_METRICS_CACHE_TTL_MS || 15000);
+const NAS_METRICS_LOG_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.NAS_METRICS_LOG_ENABLED || 'false').trim());
+const NAS_METRICS_LOG_VERBOSE = /^(1|true|yes|on)$/i.test(String(process.env.NAS_METRICS_LOG_VERBOSE || 'false').trim());
 
 let homebridgeToken = null;
 let tokenExpiry = 0;
 let tokenPromise = null;
 const deviceWriteQueues = new Map();
 const lastCharacteristicValues = new Map();
+const nasMetricsCache = {
+	value: null,
+	expiresAt: 0,
+	inFlight: null,
+};
+const nasNetworkSnapshot = {
+	timestamp: 0,
+	interfaces: new Map(),
+};
 
 function logHomebridge(event, details = {}) {
 	console.log('[Homebridge]', event, details);
+}
+
+function logNasMetrics(event, details = {}, level = 'info') {
+	if (!NAS_METRICS_LOG_ENABLED) return;
+	if (level === 'debug' && !NAS_METRICS_LOG_VERBOSE) return;
+	const now = new Date();
+	const datePart = now.toLocaleDateString('sv-SE');
+	const timePart = now.toLocaleTimeString('sv-SE', {hour12: false});
+	const millis = String(now.getMilliseconds()).padStart(3, '0');
+	const offsetMinutes = -now.getTimezoneOffset();
+	const sign = offsetMinutes >= 0 ? '+' : '-';
+	const absOffset = Math.abs(offsetMinutes);
+	const offsetHours = String(Math.floor(absOffset / 60)).padStart(2, '0');
+	const offsetMins = String(absOffset % 60).padStart(2, '0');
+	const timestamp = `${datePart} ${timePart}.${millis} ${sign}${offsetHours}:${offsetMins}`;
+	console.log('[NAS]', timestamp, event, details);
 }
 
 function getErrorDetails(err) {
@@ -162,7 +202,6 @@ async function getToken() {
 		.post(
 			`${HOMEBRIDGE_URL}/api/auth/login`,
 			{username: HB_USERNAME, password: HB_PASSWORD},
-			{timeout: 5000}
 		)
 		.then((res) => {
 			homebridgeToken = res.data.access_token;
@@ -306,6 +345,399 @@ function formatBytes(bytes) {
 		unitIndex += 1;
 	}
 	return `${current >= 10 ? current.toFixed(0) : current.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function createEmptyNasMetrics(error = 'Not configured') {
+	return {
+		configured: false,
+		online: false,
+		source: null,
+		label: NAS_USAGE_LABEL,
+		cpu: {usagePercent: null},
+		memory: {totalBytes: null, usedBytes: null, freeBytes: null, usedPercent: null},
+		disk: {totalBytes: null, usedBytes: null, freeBytes: null, usedPercent: null, volumes: []},
+		network: {
+			interfaces: [],
+			totalRxRateBytesPerSecond: null,
+			totalTxRateBytesPerSecond: null,
+		},
+		error,
+	};
+}
+
+function parseSnmpVersion(value) {
+	if (value === '1' || value === 'v1') return snmp.Version1;
+	if (value === '3' || value === 'v3') return snmp.Version3;
+	return snmp.Version2c;
+}
+
+function snmpGetAsync(session, oids) {
+	return new Promise((resolve, reject) => {
+		session.get(oids, (err, varbinds) => {
+			if (err) return reject(err);
+			for (const varbind of varbinds) {
+				if (snmp.isVarbindError(varbind)) {
+					return reject(new Error(snmp.varbindError(varbind)));
+				}
+			}
+			resolve(varbinds);
+		});
+	});
+}
+
+function snmpSubtreeAsync(session, oid) {
+	return new Promise((resolve, reject) => {
+		const rows = [];
+		session.subtree(
+			oid,
+			(varbinds) => {
+				for (const varbind of varbinds) {
+					if (!snmp.isVarbindError(varbind)) {
+						rows.push(varbind);
+					}
+				}
+			},
+			(err) => (err ? reject(err) : resolve(rows))
+		);
+	});
+}
+
+function getSnmpValueByOid(varbinds, oid) {
+	return varbinds.find((item) => item.oid === oid)?.value;
+}
+
+function normalizeCounter(value) {
+	if (typeof value === 'number') return value;
+	if (typeof value === 'bigint') return Number(value);
+	if (Buffer.isBuffer(value)) {
+		let result = 0;
+		for (const byte of value.values()) {
+			result = result * 256 + byte;
+		}
+		return result;
+	}
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseIndexedTable(varbinds, baseOid) {
+	const table = new Map();
+	for (const vb of varbinds) {
+		if (!vb.oid.startsWith(`${baseOid}.`)) continue;
+		const suffix = vb.oid.slice(baseOid.length + 1);
+		const parts = suffix.split('.');
+		if (parts.length < 2) continue;
+		const column = parts[0];
+		const index = parts.slice(1).join('.');
+		const row = table.get(index) || {};
+		row[column] = vb.value;
+		table.set(index, row);
+	}
+	return table;
+}
+
+function shouldTrackInterface(name) {
+	if (!name) return false;
+	if (NAS_NETWORK_INTERFACES.length > 0) {
+		return NAS_NETWORK_INTERFACES.some((item) => item.toLowerCase() === String(name).toLowerCase());
+	}
+	return !/^(lo|loopback|docker|veth|br-|zt|tun|tap)/i.test(String(name));
+}
+
+function mapDiskUsageFromStorage(rows) {
+	const fixedDiskTypeOid = '1.3.6.1.2.1.25.2.1.4';
+	const rawVolumes = [];
+
+	for (const [index, row] of rows.entries()) {
+		const typeOid = String(row['2'] || '');
+		const allocationUnit = toNumber(row['4'], 0);
+		const sizeUnits = toNumber(row['5'], 0);
+		const usedUnits = toNumber(row['6'], 0);
+		const name = String(row['3'] || `volume-${index}`);
+
+		if (typeOid !== fixedDiskTypeOid) continue;
+		if (allocationUnit <= 0 || sizeUnits <= 0) continue;
+
+		const totalBytes = allocationUnit * sizeUnits;
+		const usedBytes = Math.max(0, allocationUnit * usedUnits);
+		const freeBytes = Math.max(totalBytes - usedBytes, 0);
+		const usedPercent = totalBytes > 0 ? clamp(Math.round((usedBytes / totalBytes) * 100), 0, 100) : 0;
+
+		rawVolumes.push({
+			name,
+			totalBytes,
+			usedBytes,
+			freeBytes,
+			usedPercent,
+		});
+	}
+
+	const mountPreferenceScore = (volumeName) => {
+		const name = String(volumeName || '').toLowerCase();
+		if (/^\/volume\d+$/.test(name)) return 100;
+		if (name.startsWith('/volume')) return 80;
+		if (name.startsWith('/share/')) return 20;
+		return 50;
+	};
+
+	const dedupedBySignature = new Map();
+	for (const volume of rawVolumes) {
+		const signature = `${volume.totalBytes}:${volume.usedBytes}`;
+		const existing = dedupedBySignature.get(signature);
+		if (!existing) {
+			dedupedBySignature.set(signature, volume);
+			continue;
+		}
+
+		const existingScore = mountPreferenceScore(existing.name);
+		const currentScore = mountPreferenceScore(volume.name);
+		const shouldReplace = currentScore > existingScore
+			|| (currentScore === existingScore && String(volume.name).length < String(existing.name).length);
+		if (shouldReplace) {
+			dedupedBySignature.set(signature, volume);
+		}
+	}
+
+	const volumes = Array.from(dedupedBySignature.values());
+
+	const totalBytes = volumes.reduce((acc, item) => acc + item.totalBytes, 0);
+	const usedBytes = volumes.reduce((acc, item) => acc + item.usedBytes, 0);
+	const freeBytes = Math.max(totalBytes - usedBytes, 0);
+	const usedPercent = totalBytes > 0 ? clamp(Math.round((usedBytes / totalBytes) * 100), 0, 100) : null;
+
+	return {
+		totalBytes: totalBytes || null,
+		usedBytes: totalBytes ? usedBytes : null,
+		freeBytes: totalBytes ? freeBytes : null,
+		usedPercent,
+		volumes: volumes.sort((a, b) => b.usedBytes - a.usedBytes).slice(0, 4),
+	};
+}
+
+function mapMemoryFromStorage(rows) {
+	for (const row of rows.values()) {
+		const typeOid = String(row['2'] || '');
+		const name = String(row['3'] || '').toLowerCase();
+		if (typeOid !== '1.3.6.1.2.1.25.2.1.2' && !name.includes('memory') && !name.includes('ram')) {
+			continue;
+		}
+
+		const allocationUnit = toNumber(row['4'], 0);
+		const sizeUnits = toNumber(row['5'], 0);
+		const usedUnits = toNumber(row['6'], 0);
+		if (allocationUnit <= 0 || sizeUnits <= 0) continue;
+
+		const totalBytes = allocationUnit * sizeUnits;
+		const usedBytes = Math.max(0, allocationUnit * usedUnits);
+		const freeBytes = Math.max(totalBytes - usedBytes, 0);
+		const usedPercent = totalBytes > 0 ? clamp(Math.round((usedBytes / totalBytes) * 100), 0, 100) : null;
+		return {totalBytes, usedBytes, freeBytes, usedPercent};
+	}
+
+	return {totalBytes: null, usedBytes: null, freeBytes: null, usedPercent: null};
+}
+
+async function fetchSnmpNasMetrics() {
+	if (!NAS_SNMP_HOST) {
+		return createEmptyNasMetrics('Missing NAS_SNMP_HOST');
+	}
+
+	const session = snmp.createSession(NAS_SNMP_HOST, NAS_SNMP_COMMUNITY, {
+		port: NAS_SNMP_PORT,
+		version: parseSnmpVersion(NAS_SNMP_VERSION),
+		timeout: NAS_SNMP_TIMEOUT_MS,
+		retries: NAS_SNMP_RETRIES,
+	});
+
+	try {
+		const [cpuIdleBind, memoryBinds, hrProcessorLoads, storageRows, ifNameRows, ifHcInRows, ifHcOutRows, ifInRows, ifOutRows] = await Promise.all([
+			snmpGetAsync(session, ['1.3.6.1.4.1.2021.11.11.0']).catch(() => null),
+			snmpGetAsync(session, [
+				'1.3.6.1.4.1.2021.4.5.0',  // memTotalReal (kB)
+				'1.3.6.1.4.1.2021.4.6.0',  // memAvailReal (kB)
+				'1.3.6.1.4.1.2021.4.14.0', // memBuffer (kB)
+				'1.3.6.1.4.1.2021.4.15.0', // memCached (kB)
+			]).catch(() => null),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.25.3.3.1.2').catch(() => []),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.25.2.3.1').catch(() => []),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.2.2.1.2').catch(() => []),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.31.1.1.1.6').catch(() => []),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.31.1.1.1.10').catch(() => []),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.2.2.1.10').catch(() => []),
+			snmpSubtreeAsync(session, '1.3.6.1.2.1.2.2.1.16').catch(() => []),
+		]);
+
+		const cpuLoadValues = hrProcessorLoads
+			.map((item) => toNumber(item.value, NaN))
+			.filter((value) => Number.isFinite(value) && value >= 0);
+		const cpuIdle = toNumber(getSnmpValueByOid(cpuIdleBind || [], '1.3.6.1.4.1.2021.11.11.0'), NaN);
+		const cpuUsagePercent = cpuLoadValues.length > 0
+			? clamp(Math.round(cpuLoadValues.reduce((acc, value) => acc + value, 0) / cpuLoadValues.length), 0, 100)
+			: (Number.isFinite(cpuIdle) ? clamp(Math.round(100 - cpuIdle), 0, 100) : null);
+
+		const memoryTotalKb = toNumber(getSnmpValueByOid(memoryBinds || [], '1.3.6.1.4.1.2021.4.5.0'), NaN);
+		const memoryAvailKb = toNumber(getSnmpValueByOid(memoryBinds || [], '1.3.6.1.4.1.2021.4.6.0'), NaN);
+		const memoryBufferKb = toNumber(getSnmpValueByOid(memoryBinds || [], '1.3.6.1.4.1.2021.4.14.0'), NaN);
+		const memoryCachedKb = toNumber(getSnmpValueByOid(memoryBinds || [], '1.3.6.1.4.1.2021.4.15.0'), NaN);
+
+		const storageTable = parseIndexedTable(storageRows, '1.3.6.1.2.1.25.2.3.1');
+		const memoryFromStorage = mapMemoryFromStorage(storageTable);
+		const hasDetailedMemoryBreakdown = [memoryAvailKb, memoryBufferKb, memoryCachedKb].every(Number.isFinite);
+		const effectiveAvailableKb = hasDetailedMemoryBreakdown
+			? Math.max(memoryAvailKb, 0) + Math.max(memoryBufferKb, 0) + Math.max(memoryCachedKb, 0)
+			: memoryAvailKb;
+		const safeAvailableKb = Number.isFinite(memoryTotalKb) && Number.isFinite(effectiveAvailableKb)
+			? clamp(effectiveAvailableKb, 0, Math.max(memoryTotalKb, 0))
+			: NaN;
+
+		const memory = Number.isFinite(memoryTotalKb) && Number.isFinite(safeAvailableKb)
+			? {
+				totalBytes: Math.max(memoryTotalKb, 0) * 1024,
+				freeBytes: Math.max(safeAvailableKb, 0) * 1024,
+				usedBytes: Math.max(memoryTotalKb - safeAvailableKb, 0) * 1024,
+				usedPercent: memoryTotalKb > 0 ? clamp(Math.round(((memoryTotalKb - safeAvailableKb) / memoryTotalKb) * 100), 0, 100) : null,
+			}
+			: memoryFromStorage;
+
+		const disk = mapDiskUsageFromStorage(storageTable);
+
+		const ifNameMap = new Map();
+		for (const item of ifNameRows) {
+			const index = item.oid.split('.').pop();
+			if (index) ifNameMap.set(index, String(item.value || '').trim());
+		}
+
+		const inCounterMap = new Map();
+		for (const item of (ifHcInRows.length > 0 ? ifHcInRows : ifInRows)) {
+			const index = item.oid.split('.').pop();
+			if (index) inCounterMap.set(index, normalizeCounter(item.value));
+		}
+
+		const outCounterMap = new Map();
+		for (const item of (ifHcOutRows.length > 0 ? ifHcOutRows : ifOutRows)) {
+			const index = item.oid.split('.').pop();
+			if (index) outCounterMap.set(index, normalizeCounter(item.value));
+		}
+
+		const now = Date.now();
+		const elapsedMs = nasNetworkSnapshot.timestamp > 0 ? now - nasNetworkSnapshot.timestamp : 0;
+		const networkInterfaces = [];
+
+		for (const [index, name] of ifNameMap.entries()) {
+			if (!shouldTrackInterface(name)) continue;
+			const rxBytes = inCounterMap.get(index);
+			const txBytes = outCounterMap.get(index);
+			if (!Number.isFinite(rxBytes) || !Number.isFinite(txBytes)) continue;
+
+			const previous = nasNetworkSnapshot.interfaces.get(index);
+			let rxRateBytesPerSecond = null;
+			let txRateBytesPerSecond = null;
+			if (previous && elapsedMs > 0 && rxBytes >= previous.rxBytes && txBytes >= previous.txBytes) {
+				const elapsedSeconds = elapsedMs / 1000;
+				rxRateBytesPerSecond = Math.max(0, Math.round((rxBytes - previous.rxBytes) / elapsedSeconds));
+				txRateBytesPerSecond = Math.max(0, Math.round((txBytes - previous.txBytes) / elapsedSeconds));
+			}
+
+			networkInterfaces.push({
+				index,
+				name,
+				rxBytes,
+				txBytes,
+				rxRateBytesPerSecond,
+				txRateBytesPerSecond,
+			});
+		}
+
+		nasNetworkSnapshot.timestamp = now;
+		nasNetworkSnapshot.interfaces = new Map(
+			networkInterfaces.map((item) => [
+				item.index,
+				{rxBytes: item.rxBytes, txBytes: item.txBytes},
+			])
+		);
+
+		const totalRxRateBytesPerSecond = networkInterfaces.reduce(
+			(acc, item) => acc + (Number.isFinite(item.rxRateBytesPerSecond) ? item.rxRateBytesPerSecond : 0),
+			0
+		);
+		const totalTxRateBytesPerSecond = networkInterfaces.reduce(
+			(acc, item) => acc + (Number.isFinite(item.txRateBytesPerSecond) ? item.txRateBytesPerSecond : 0),
+			0
+		);
+
+		logNasMetrics('metrics.fetch_success', {
+			host: NAS_SNMP_HOST,
+			cpuUsagePercent,
+			memoryUsedPercent: memory.usedPercent,
+			diskUsedPercent: disk.usedPercent,
+			interfaces: networkInterfaces.length,
+		});
+
+		return {
+			configured: true,
+			online: true,
+			source: 'snmp',
+			label: NAS_USAGE_LABEL,
+			cpu: {usagePercent: cpuUsagePercent},
+			memory,
+			disk,
+			network: {
+				interfaces: networkInterfaces
+					.sort((a, b) => (b.rxRateBytesPerSecond || 0) + (b.txRateBytesPerSecond || 0) - ((a.rxRateBytesPerSecond || 0) + (a.txRateBytesPerSecond || 0)))
+					.slice(0, 4)
+					.map(({index: _index, ...rest}) => rest),
+				totalRxRateBytesPerSecond: networkInterfaces.some((item) => Number.isFinite(item.rxRateBytesPerSecond)) ? totalRxRateBytesPerSecond : null,
+				totalTxRateBytesPerSecond: networkInterfaces.some((item) => Number.isFinite(item.txRateBytesPerSecond)) ? totalTxRateBytesPerSecond : null,
+			},
+			error: null,
+		};
+	} catch (err) {
+		logNasMetrics('metrics.fetch_error', {
+			host: NAS_SNMP_HOST,
+			message: err.message,
+			code: err.code || null,
+		}, 'error');
+		return {
+			...createEmptyNasMetrics(err.message),
+			configured: true,
+			source: 'snmp',
+			error: err.message,
+		};
+	} finally {
+		session.close();
+	}
+}
+
+async function probeNasMetrics() {
+	const mode = NAS_METRICS_MODE || (NAS_SNMP_HOST ? 'snmp' : 'none');
+	if (mode !== 'snmp') {
+		logNasMetrics('metrics.skipped', {reason: 'mode_not_snmp', mode}, 'debug');
+		return createEmptyNasMetrics('Not configured');
+	}
+
+	const now = Date.now();
+	if (nasMetricsCache.value && nasMetricsCache.expiresAt > now) {
+		logNasMetrics('metrics.cache_hit', {expiresInMs: nasMetricsCache.expiresAt - now}, 'debug');
+		return nasMetricsCache.value;
+	}
+
+	logNasMetrics('metrics.cache_miss', {cacheTtlMs: Math.max(1000, NAS_METRICS_CACHE_TTL_MS)}, 'debug');
+	if (!nasMetricsCache.inFlight) {
+		logNasMetrics('metrics.fetch_start', {host: NAS_SNMP_HOST, port: NAS_SNMP_PORT});
+		nasMetricsCache.inFlight = fetchSnmpNasMetrics()
+			.then((metrics) => {
+				nasMetricsCache.value = metrics;
+				nasMetricsCache.expiresAt = Date.now() + Math.max(1000, NAS_METRICS_CACHE_TTL_MS);
+				return metrics;
+			})
+			.finally(() => {
+				nasMetricsCache.inFlight = null;
+			});
+	} else {
+		logNasMetrics('metrics.inflight_reuse', {}, 'debug');
+	}
+
+	return nasMetricsCache.inFlight;
 }
 
 function buildNasSummary(path, stats) {
@@ -954,13 +1386,14 @@ router.post('/color', async (req, res) => {
 });
 
 router.get('/services-status', async (_req, res) => {
-	const [prowlarrDetails, qbittorrentClient, nzbgetClient, qbittorrentDownloads, nzbgetDownloads, nasUsage] = await Promise.all([
+	const [prowlarrDetails, qbittorrentClient, nzbgetClient, qbittorrentDownloads, nzbgetDownloads, nasUsage, nasMetrics] = await Promise.all([
 		fetchProwlarrDetails(),
 		probeQbittorrent(),
 		probeNzbget(),
 		fetchQbittorrentDownloads(),
 		fetchNzbgetDownloads(),
 		probeNasUsage(),
+		probeNasMetrics(),
 	]);
 
 	const downloadActivity = buildSummary(
@@ -989,6 +1422,7 @@ router.get('/services-status', async (_req, res) => {
 		downloadClients: downloadClientsSummary,
 		downloadActivity,
 		nasUsage,
+		nasMetrics,
 		indexer: {
 			configured: prowlarrDetails.prowlarr.configured,
 			online: prowlarrDetails.prowlarr.online,

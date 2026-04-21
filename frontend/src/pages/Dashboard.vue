@@ -1,10 +1,11 @@
 <script setup>
-import {onMounted, onUnmounted, ref, watch} from 'vue';
+import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
 import {RouterLink} from 'vue-router';
 import WeatherCard from '../components/WeatherCard.vue';
 import HomeKitPanel from '../components/HomeKitPanel.vue';
 import JellyfinCarousel from '../components/JellyfinCarousel.vue';
 import AppIcon from '../components/AppIcon.vue';
+import RollingNumber from '../components/RollingNumber.vue';
 import {useWeatherStore} from '../stores/useWeatherStore.js';
 import {useHomeStore} from '../stores/useHomeStore.js';
 import {useJellyfinStore} from '../stores/useJellyfinStore.js';
@@ -19,6 +20,30 @@ const {coords, isLoading: geoLoading} = useGeolocation();
 const clock = ref('');
 const clockInterval = ref(null);
 const serviceStatusInterval = ref(null);
+
+function shuffledCopy(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+const combinedSuggestedItems = computed(() => {
+  const merged = [...(jellyfinStore.suggestedWatches || []), ...(jellyfinStore.recommendedShows || [])];
+  const byId = new Map();
+  for (const item of merged) {
+    const key = item?.id ?? item?.Id ?? `${item?.title || item?.name || 'item'}_${byId.size}`;
+    if (!byId.has(key)) {
+      byId.set(key, item);
+    }
+  }
+  return shuffledCopy(Array.from(byId.values()));
+});
+
+const combinedSuggestedLoading = computed(() => jellyfinStore.suggestedLoading || jellyfinStore.recommendedShowsLoading);
+const combinedSuggestedError = computed(() => jellyfinStore.suggestedError || jellyfinStore.recommendedShowsError);
 
 function statusLabel(service) {
   if (!service?.configured) return 'Not configured';
@@ -71,6 +96,18 @@ function formatDuration(seconds) {
   return `${Math.max(1, totalMinutes)}m`;
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined) return '—';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return '—';
+  return `${Math.round(numeric)}%`;
+}
+
+function formatRate(bytesPerSecond) {
+  const base = formatBytes(bytesPerSecond);
+  return base === '—' ? '—' : `${base}/s`;
+}
+
 function updateClock() {
   const now = new Date();
   clock.value = now.toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
@@ -95,7 +132,7 @@ onMounted(() => {
 
   serviceStatusInterval.value = setInterval(() => {
     homeStore.fetchServiceStatus();
-  }, 30000);
+  }, 1000);
 });
 
 onUnmounted(() => {
@@ -121,7 +158,7 @@ onUnmounted(() => {
       <span
           class="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-medium text-white/70 md:text-sm">
         <AppIcon :size="14" class="text-white/65" name="clock"/>
-        <span class="font-mono tabular-nums">{{ clock }}</span>
+        <RollingNumber class="font-mono tabular-nums" :value="clock" fallback="--:--:--"/>
       </span>
     </header>
 
@@ -214,16 +251,10 @@ onUnmounted(() => {
           </RouterLink>
         </div>
         <JellyfinCarousel
-            :is-loading="jellyfinStore.suggestedLoading"
-            :items="jellyfinStore.suggestedWatches"
-            :error="jellyfinStore.suggestedError"
+            :is-loading="combinedSuggestedLoading"
+            :items="combinedSuggestedItems"
+            :error="combinedSuggestedError"
             title="Suggested movies"
-        />
-        <JellyfinCarousel
-            :is-loading="jellyfinStore.recommendedShowsLoading"
-            :items="jellyfinStore.recommendedShows"
-            :error="jellyfinStore.recommendedShowsError"
-            title="Recommended shows"
         />
         <JellyfinCarousel
             :is-loading="jellyfinStore.recentLoading"
@@ -232,19 +263,81 @@ onUnmounted(() => {
             title="Recently added"
         />
       </section>
-
       <section class="glass-section masonry-item motion-fade-in mb-3 min-h-0">
         <div class="mb-2 flex items-center justify-between gap-3">
           <p class="glass-section-label">NAS usage</p>
-          <span
-              class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45">
-            {{
-              homeStore.serviceStatus.nasUsage.configured ? `${homeStore.serviceStatus.nasUsage.usedPercent}% used` : 'Not configured'
-            }}
-          </span>
         </div>
 
-        <div v-if="homeStore.serviceStatus.nasUsage.configured" class="space-y-3">
+        <div v-if="homeStore.serviceStatus.nasMetrics.configured" class="space-y-3">
+          <div class="grid grid-cols-2 gap-2.5">
+            <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">CPU</div>
+              <RollingNumber
+                  class="mt-1 text-xl font-semibold text-white/95"
+                  :value="homeStore.serviceStatus.nasMetrics.cpu.usagePercent"
+                  suffix="%"
+              />
+            </article>
+            <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">RAM</div>
+              <RollingNumber
+                  class="mt-1 text-xl font-semibold text-white/95"
+                  :value="homeStore.serviceStatus.nasMetrics.memory.usedPercent"
+                  suffix="%"
+              />
+              <div class="mt-1 text-[11px] text-white/45">
+                {{ formatBytes(homeStore.serviceStatus.nasMetrics.memory.usedBytes) }} /
+                {{ formatBytes(homeStore.serviceStatus.nasMetrics.memory.totalBytes) }}
+              </div>
+            </article>
+            <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">Disk</div>
+              <RollingNumber
+                  class="mt-1 text-xl font-semibold text-white/95"
+                  :value="homeStore.serviceStatus.nasMetrics.disk.usedPercent"
+                  suffix="%"
+              />
+              <div class="mt-1 text-[11px] text-white/45">
+                {{ formatBytes(homeStore.serviceStatus.nasMetrics.disk.usedBytes) }} /
+                {{ formatBytes(homeStore.serviceStatus.nasMetrics.disk.totalBytes) }}
+              </div>
+            </article>
+            <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">Network</div>
+              <div class="mt-1 text-sm font-semibold text-white/90">
+                <RollingNumber
+                    :value="formatRate(homeStore.serviceStatus.nasMetrics.network.totalRxRateBytesPerSecond)"/>
+                in
+              </div>
+              <div class="text-[11px] text-white/55">
+                <RollingNumber
+                    :value="formatRate(homeStore.serviceStatus.nasMetrics.network.totalTxRateBytesPerSecond)"/>
+                out
+              </div>
+            </article>
+          </div>
+
+          <div v-if="homeStore.serviceStatus.nasMetrics.disk.usedPercent !== null"
+               class="h-2 overflow-hidden rounded-full bg-white/10">
+            <div
+                class="h-full rounded-full bg-white/80 transition-all duration-300"
+                :style="{width: `${homeStore.serviceStatus.nasMetrics.disk.usedPercent || 0}%`}"
+            ></div>
+          </div>
+
+          <div v-if="homeStore.serviceStatus.nasMetrics.network.interfaces?.length" class="space-y-1.5">
+            <div v-for="iface in homeStore.serviceStatus.nasMetrics.network.interfaces" :key="iface.name"
+                 class="flex items-center justify-between rounded-xl bg-black/10 px-3 py-2 text-[11px]">
+              <span class="text-white/80">{{ iface.name }}</span>
+              <span class="text-white/45">
+                <RollingNumber :value="formatRate(iface.rxRateBytesPerSecond)"/> in · <RollingNumber
+                  :value="formatRate(iface.txRateBytesPerSecond)"/> out
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="homeStore.serviceStatus.nasUsage.configured" class="space-y-3">
           <div class="flex items-end justify-between gap-4">
             <div>
               <div class="text-3xl font-semibold tracking-tight text-white/95">
@@ -270,7 +363,7 @@ onUnmounted(() => {
         </div>
 
         <div v-else class="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-4 text-sm text-white/35">
-          Set `NAS_USAGE_PATH` on the backend to show disk usage here.
+          Set `NAS_METRICS_MODE=snmp` and `NAS_SNMP_HOST` to show live NAS CPU/RAM/disk/network usage.
         </div>
       </section>
 

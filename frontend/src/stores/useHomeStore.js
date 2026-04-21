@@ -14,6 +14,17 @@ export const useHomeStore = defineStore('home', () => {
 		indexers: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
 		downloadClients: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
 		downloadActivity: {configured: false, online: false, total: 0, enabled: 0, onlineCount: 0, items: []},
+		nasMetrics: {
+			configured: false,
+			online: false,
+			source: null,
+			label: 'NAS',
+			cpu: {usagePercent: null},
+			memory: {totalBytes: null, usedBytes: null, freeBytes: null, usedPercent: null},
+			disk: {totalBytes: null, usedBytes: null, freeBytes: null, usedPercent: null, volumes: []},
+			network: {interfaces: [], totalRxRateBytesPerSecond: null, totalTxRateBytesPerSecond: null},
+			error: 'Not configured',
+		},
 		nasUsage: {
 			configured: false,
 			online: false,
@@ -128,6 +139,7 @@ export const useHomeStore = defineStore('home', () => {
 				indexers: payload?.indexers || serviceStatus.value.indexers,
 				downloadClients: payload?.downloadClients || serviceStatus.value.downloadClients,
 				downloadActivity: payload?.downloadActivity || serviceStatus.value.downloadActivity,
+				nasMetrics: payload?.nasMetrics || serviceStatus.value.nasMetrics,
 				nasUsage: payload?.nasUsage || serviceStatus.value.nasUsage,
 			};
 		} catch (err) {
@@ -145,6 +157,11 @@ export const useHomeStore = defineStore('home', () => {
 				},
 				nasUsage: {
 					...serviceStatus.value.nasUsage,
+					online: false,
+					error: err.response?.data?.error || err.message || 'Status check failed',
+				},
+				nasMetrics: {
+					...serviceStatus.value.nasMetrics,
 					online: false,
 					error: err.response?.data?.error || err.message || 'Status check failed',
 				},
