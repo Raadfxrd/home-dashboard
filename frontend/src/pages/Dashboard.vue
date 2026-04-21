@@ -6,6 +6,7 @@ import HomeKitPanel from '../components/HomeKitPanel.vue';
 import JellyfinCarousel from '../components/JellyfinCarousel.vue';
 import AppIcon from '../components/AppIcon.vue';
 import RollingNumber from '../components/RollingNumber.vue';
+import TinyLineChart from '../components/TinyLineChart.vue';
 import {useWeatherStore} from '../stores/useWeatherStore.js';
 import {useHomeStore} from '../stores/useHomeStore.js';
 import {useJellyfinStore} from '../stores/useJellyfinStore.js';
@@ -20,6 +21,18 @@ const {coords, isLoading: geoLoading} = useGeolocation();
 const clock = ref('');
 const clockInterval = ref(null);
 const serviceStatusInterval = ref(null);
+const cpuHistory = ref([]);
+const ramHistory = ref([]);
+const diskHistory = ref([]);
+const rxHistory = ref([]);
+const txHistory = ref([]);
+const HISTORY_LIMIT = 40;
+
+function pushHistory(historyRef, value, limit = HISTORY_LIMIT) {
+  if (!Number.isFinite(value)) return;
+  const next = [...historyRef.value, value];
+  historyRef.value = next.slice(-limit);
+}
 
 function shuffledCopy(items) {
   const copy = [...items];
@@ -96,16 +109,29 @@ function formatDuration(seconds) {
   return `${Math.max(1, totalMinutes)}m`;
 }
 
-function formatPercent(value) {
-  if (value === null || value === undefined) return '—';
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return '—';
-  return `${Math.round(numeric)}%`;
-}
-
 function formatRate(bytesPerSecond) {
   const base = formatBytes(bytesPerSecond);
   return base === '—' ? '—' : `${base}/s`;
+}
+
+function usageFillStyle(percent) {
+  const value = Number(percent);
+  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+
+  let from = 'rgba(16, 185, 129, 0.45)';
+  let via = 'rgba(52, 211, 153, 0.18)';
+  if (normalized >= 90) {
+    from = 'rgba(244, 63, 94, 0.5)';
+    via = 'rgba(251, 113, 133, 0.22)';
+  } else if (normalized >= 75) {
+    from = 'rgba(245, 158, 11, 0.48)';
+    via = 'rgba(251, 191, 36, 0.2)';
+  }
+
+  return {
+    height: `${normalized}%`,
+    background: `linear-gradient(to top, ${from} 0%, ${via} 55%, rgba(255, 255, 255, 0) 100%)`,
+  };
 }
 
 function updateClock() {
@@ -118,6 +144,25 @@ watch(coords, (val) => {
     weatherStore.fetchLocationWeather(val.lat, val.lon);
   }
 });
+
+watch(
+    () => ({
+      cpu: homeStore.serviceStatus.nasMetrics.cpu?.usagePercent,
+      ram: homeStore.serviceStatus.nasMetrics.memory?.usedPercent,
+      disk: homeStore.serviceStatus.nasMetrics.disk?.usedPercent,
+      rx: homeStore.serviceStatus.nasMetrics.network?.totalRxRateBytesPerSecond,
+      tx: homeStore.serviceStatus.nasMetrics.network?.totalTxRateBytesPerSecond,
+      configured: homeStore.serviceStatus.nasMetrics.configured,
+    }),
+    (sample) => {
+      if (!sample.configured) return;
+      pushHistory(cpuHistory, Number(sample.cpu));
+      pushHistory(ramHistory, Number(sample.ram));
+      pushHistory(diskHistory, Number(sample.disk));
+      pushHistory(rxHistory, Number(sample.rx));
+      pushHistory(txHistory, Number(sample.tx));
+    }
+);
 
 onMounted(() => {
   updateClock();
@@ -132,7 +177,7 @@ onMounted(() => {
 
   serviceStatusInterval.value = setInterval(() => {
     homeStore.fetchServiceStatus();
-  }, 1000);
+  }, 3000);
 });
 
 onUnmounted(() => {
@@ -277,6 +322,10 @@ onUnmounted(() => {
                   :value="homeStore.serviceStatus.nasMetrics.cpu.usagePercent"
                   suffix="%"
               />
+              <TinyLineChart
+                  :datasets="[{data: cpuHistory, borderColor: '#38bdf8', backgroundColor: 'rgba(56, 189, 248, 0.22)'}]"
+                  :y-max="100"
+              />
             </article>
             <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
               <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">RAM</div>
@@ -285,21 +334,31 @@ onUnmounted(() => {
                   :value="homeStore.serviceStatus.nasMetrics.memory.usedPercent"
                   suffix="%"
               />
+              <TinyLineChart
+                  :datasets="[{data: ramHistory, borderColor: '#a78bfa', backgroundColor: 'rgba(167, 139, 250, 0.22)'}]"
+                  :y-max="100"
+              />
               <div class="mt-1 text-[11px] text-white/45">
                 {{ formatBytes(homeStore.serviceStatus.nasMetrics.memory.usedBytes) }} /
                 {{ formatBytes(homeStore.serviceStatus.nasMetrics.memory.totalBytes) }}
               </div>
             </article>
-            <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-              <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">Disk</div>
-              <RollingNumber
-                  class="mt-1 text-xl font-semibold text-white/95"
-                  :value="homeStore.serviceStatus.nasMetrics.disk.usedPercent"
-                  suffix="%"
-              />
-              <div class="mt-1 text-[11px] text-white/45">
-                {{ formatBytes(homeStore.serviceStatus.nasMetrics.disk.usedBytes) }} /
-                {{ formatBytes(homeStore.serviceStatus.nasMetrics.disk.totalBytes) }}
+            <article class="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div
+                  class="pointer-events-none absolute inset-x-0 bottom-0 transition-all duration-700"
+                  :style="usageFillStyle(homeStore.serviceStatus.nasMetrics.disk.usedPercent)"
+              ></div>
+              <div class="relative z-10">
+                <div class="text-[10px] uppercase tracking-[0.12em] text-white/45">Disk</div>
+                <RollingNumber
+                    class="mt-1 text-xl font-semibold text-white/95"
+                    :value="homeStore.serviceStatus.nasMetrics.disk.usedPercent"
+                    suffix="%"
+                />
+                <div class="mt-1 text-[11px] text-white/45">
+                  {{ formatBytes(homeStore.serviceStatus.nasMetrics.disk.usedBytes) }} /
+                  {{ formatBytes(homeStore.serviceStatus.nasMetrics.disk.totalBytes) }}
+                </div>
               </div>
             </article>
             <article class="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
@@ -314,15 +373,13 @@ onUnmounted(() => {
                     :value="formatRate(homeStore.serviceStatus.nasMetrics.network.totalTxRateBytesPerSecond)"/>
                 out
               </div>
+              <TinyLineChart
+                  :datasets="[
+                    {label: 'In', data: rxHistory, borderColor: '#60a5fa', backgroundColor: 'rgba(96, 165, 250, 0.14)'},
+                    {label: 'Out', data: txHistory, borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.10)', fill: false}
+                  ]"
+              />
             </article>
-          </div>
-
-          <div v-if="homeStore.serviceStatus.nasMetrics.disk.usedPercent !== null"
-               class="h-2 overflow-hidden rounded-full bg-white/10">
-            <div
-                class="h-full rounded-full bg-white/80 transition-all duration-300"
-                :style="{width: `${homeStore.serviceStatus.nasMetrics.disk.usedPercent || 0}%`}"
-            ></div>
           </div>
 
           <div v-if="homeStore.serviceStatus.nasMetrics.network.interfaces?.length" class="space-y-1.5">
