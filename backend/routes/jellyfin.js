@@ -10,6 +10,7 @@ const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 const TMDB_LANGUAGE = process.env.TMDB_LANGUAGE || 'en-US';
 const SUGGESTED_MAX_ITEMS = process.env.SUGGESTED_MAX_ITEMS || '15';
 let resolvedUserId = null;
+let resolvedUserPromise = null;
 
 function maskIdentifier(value) {
 	if (!value) return 'missing';
@@ -177,10 +178,19 @@ function scoreCandidate(item, historyGenres, tmdbTitles) {
 	return genreHits * 10 + (tmdbHit ? 8 : 0) + (item.UserData?.IsFavorite ? 2 : 0);
 }
 
+function findUserByName(users = [], username = '') {
+	const normalizedUsername = String(username || '').trim().toLowerCase();
+	return (Array.isArray(users) ? users : []).find((user) => String(user?.Name || '').trim().toLowerCase() === normalizedUsername) || null;
+}
+
 async function getResolvedUserId() {
 	if (resolvedUserId) {
 		logJellyfin('user.resolve.cache_hit', {userId: maskIdentifier(resolvedUserId)});
 		return resolvedUserId;
+	}
+	if (resolvedUserPromise) {
+		logJellyfin('user.resolve.inflight_reuse');
+		return resolvedUserPromise;
 	}
 
 	if (!JELLYFIN_USER_ID) return null;
@@ -191,29 +201,49 @@ async function getResolvedUserId() {
 		return resolvedUserId;
 	}
 
-	try {
-		logJellyfin('user.resolve.me_start');
-		const meResponse = await axios.get(`${JELLYFIN_URL}/Users/Me`, {headers: jellyfinHeaders()});
-		if (meResponse.data?.Id) {
-			resolvedUserId = meResponse.data.Id;
-			logJellyfin('user.resolve.me_success', {userId: maskIdentifier(resolvedUserId)});
-			return resolvedUserId;
+	resolvedUserPromise = (async () => {
+		try {
+			logJellyfin('user.resolve.me_start');
+			const meResponse = await axios.get(`${JELLYFIN_URL}/Users/Me`, {headers: jellyfinHeaders()});
+			if (meResponse.data?.Id) {
+				resolvedUserId = meResponse.data.Id;
+				logJellyfin('user.resolve.me_success', {userId: maskIdentifier(resolvedUserId)});
+				return resolvedUserId;
+			}
+		} catch (err) {
+			logJellyfin('user.resolve.me_failed', getErrorDetails(err));
 		}
-	} catch (err) {
-		logJellyfin('user.resolve.me_failed', getErrorDetails(err));
-	}
 
-	logJellyfin('user.resolve.lookup_start', {username: maskIdentifier(JELLYFIN_USER_ID)});
-	const response = await axios.get(`${JELLYFIN_URL}/Users`, {headers: jellyfinHeaders()});
-	const match = (response.data || []).find((user) => user?.Name?.toLowerCase() === JELLYFIN_USER_ID.toLowerCase());
-	if (!match?.Id) {
-		logJellyfin('user.resolve.lookup_miss', {username: maskIdentifier(JELLYFIN_USER_ID)});
+		logJellyfin('user.resolve.lookup_start', {username: maskIdentifier(JELLYFIN_USER_ID)});
+		const userSources = [
+			{label: 'public', url: `${JELLYFIN_URL}/Users/Public`, headers: {}},
+			{label: 'admin', url: `${JELLYFIN_URL}/Users`, headers: jellyfinHeaders()},
+		];
+
+		for (const source of userSources) {
+			try {
+				logJellyfin(`user.resolve.lookup_${source.label}_start`, {username: maskIdentifier(JELLYFIN_USER_ID)});
+				const response = await axios.get(source.url, {headers: source.headers});
+				const match = findUserByName(response.data, JELLYFIN_USER_ID);
+				if (match?.Id) {
+					resolvedUserId = match.Id;
+					logJellyfin(`user.resolve.lookup_${source.label}_success`, {userId: maskIdentifier(resolvedUserId)});
+					return resolvedUserId;
+				}
+				logJellyfin(`user.resolve.lookup_${source.label}_miss`, {username: maskIdentifier(JELLYFIN_USER_ID)});
+			} catch (err) {
+				logJellyfin(`user.resolve.lookup_${source.label}_failed`, getErrorDetails(err));
+			}
+		}
+
+		logJellyfin('user.resolve.lookup_failed', {username: maskIdentifier(JELLYFIN_USER_ID)});
 		return null;
-	}
+	})()
+		.finally(() => {
+			resolvedUserPromise = null;
+		});
 
-	resolvedUserId = match.Id;
-	logJellyfin('user.resolve.lookup_success', {userId: maskIdentifier(resolvedUserId)});
-	return resolvedUserId;
+	return resolvedUserPromise;
 }
 
 

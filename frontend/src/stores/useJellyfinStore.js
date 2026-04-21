@@ -12,41 +12,74 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 	const suggestedError = ref(null);
 	const recommendedShowsError = ref(null);
 	const recentError = ref(null);
+	const suggestedRequest = ref(null);
+	const recommendedShowsRequest = ref(null);
+	const recentRequest = ref(null);
 
 	async function fetchSuggestedWatches() {
+		if (suggestedRequest.value) return suggestedRequest.value;
+
 		suggestedLoading.value = true;
 		suggestedError.value = null;
-		try {
-			suggestedWatches.value = await get('/jellyfin/suggested');
-		} catch (err) {
-			suggestedError.value = err.response?.data?.error || 'Failed to load suggested watches';
-		} finally {
-			suggestedLoading.value = false;
-		}
+		suggestedRequest.value = get('/jellyfin/suggested')
+			.then((payload) => {
+				suggestedWatches.value = payload;
+				return payload;
+			})
+			.catch((err) => {
+				suggestedError.value = err.response?.data?.error || 'Failed to load suggested watches';
+				return [];
+			})
+			.finally(() => {
+				suggestedLoading.value = false;
+				suggestedRequest.value = null;
+			});
+
+		return suggestedRequest.value;
 	}
 
 	async function fetchRecommendedShows() {
+		if (recommendedShowsRequest.value) return recommendedShowsRequest.value;
+
 		recommendedShowsLoading.value = true;
 		recommendedShowsError.value = null;
-		try {
-			recommendedShows.value = await get('/jellyfin/suggested?type=shows');
-		} catch (err) {
-			recommendedShowsError.value = err.response?.data?.error || 'Failed to load recommended shows';
-		} finally {
-			recommendedShowsLoading.value = false;
-		}
+		recommendedShowsRequest.value = get('/jellyfin/suggested?type=shows')
+			.then((payload) => {
+				recommendedShows.value = payload;
+				return payload;
+			})
+			.catch((err) => {
+				recommendedShowsError.value = err.response?.data?.error || 'Failed to load recommended shows';
+				return [];
+			})
+			.finally(() => {
+				recommendedShowsLoading.value = false;
+				recommendedShowsRequest.value = null;
+			});
+
+		return recommendedShowsRequest.value;
 	}
 
 	async function fetchRecentlyAdded() {
+		if (recentRequest.value) return recentRequest.value;
+
 		recentLoading.value = true;
 		recentError.value = null;
-		try {
-			recentlyAdded.value = await get('/jellyfin/recent');
-		} catch (err) {
-			recentError.value = err.response?.data?.error || 'Failed to load recently added';
-		} finally {
-			recentLoading.value = false;
-		}
+		recentRequest.value = get('/jellyfin/recent')
+			.then((payload) => {
+				recentlyAdded.value = payload;
+				return payload;
+			})
+			.catch((err) => {
+				recentError.value = err.response?.data?.error || 'Failed to load recently added';
+				return [];
+			})
+			.finally(() => {
+				recentLoading.value = false;
+				recentRequest.value = null;
+			});
+
+		return recentRequest.value;
 	}
 
 	return {
@@ -59,6 +92,9 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 		suggestedError,
 		recommendedShowsError,
 		recentError,
+		suggestedRequest,
+		recommendedShowsRequest,
+		recentRequest,
 		fetchSuggestedWatches,
 		fetchRecommendedShows,
 		fetchRecentlyAdded,

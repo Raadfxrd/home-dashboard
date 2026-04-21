@@ -15,6 +15,8 @@ const QBITTORRENT_URL = process.env.QBITTORRENT_URL || '';
 const QBITTORRENT_USERNAME = process.env.QBITTORRENT_USERNAME || '';
 const QBITTORRENT_PASSWORD = process.env.QBITTORRENT_PASSWORD || '';
 const QBITTORRENT_STATUS_PATH = process.env.QBITTORRENT_STATUS_PATH || '/api/v2/app/version';
+const DOWNLOAD_ACTIVITY_MAX_ITEMS = Math.max(1, Number(process.env.DOWNLOAD_ACTIVITY_MAX_ITEMS || 50));
+const EXTERNAL_HTTP_TIMEOUT_MS = Math.max(5000, Math.min(120000, Number(process.env.EXTERNAL_HTTP_TIMEOUT_MS || 10000)));
 const NZBGET_URL = process.env.NZBGET_URL || '';
 const NZBGET_USERNAME = process.env.NZBGET_USERNAME || '';
 const NZBGET_PASSWORD = process.env.NZBGET_PASSWORD || '';
@@ -32,7 +34,7 @@ const NAS_NETWORK_INTERFACES = String(process.env.NAS_NETWORK_INTERFACES || '')
 	.split(',')
 	.map((item) => item.trim())
 	.filter(Boolean);
-const NAS_METRICS_CACHE_TTL_MS = Number(process.env.NAS_METRICS_CACHE_TTL_MS || 15000);
+const NAS_METRICS_CACHE_TTL_MS = Number(process.env.NAS_METRICS_CACHE_TTL_MS || 1500);
 const NAS_METRICS_LOG_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.NAS_METRICS_LOG_ENABLED || 'false').trim());
 const NAS_METRICS_LOG_VERBOSE = /^(1|true|yes|on)$/i.test(String(process.env.NAS_METRICS_LOG_VERBOSE || 'false').trim());
 
@@ -289,7 +291,7 @@ async function probeService(name, {baseUrl, statusPath, apiKey}) {
 	try {
 		const response = await axios.get(targetUrl, {
 			headers,
-			timeout: 5000,
+			timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 			validateStatus: () => true,
 		});
 		const online = response.status >= 200 && response.status < 400;
@@ -777,6 +779,30 @@ function mapQbittorrentDownload(torrent) {
 	};
 }
 
+function isQbittorrentActiveState(stateValue) {
+	const state = String(stateValue || '').toLowerCase();
+	if (!state) return false;
+	return [
+		'downloading',
+		'forceddl',
+		'stalleddl',
+		'metadl',
+		'queueddl',
+		'checkdl',
+		'checkingdl',
+		'checkingresumedata',
+	].some((part) => state.includes(part));
+}
+
+function qbittorrentStatePriority(stateValue) {
+	const state = String(stateValue || '').toLowerCase();
+	if (state.includes('downloading') || state.includes('forceddl')) return 0;
+	if (state.includes('metadl') || state.includes('checkdl') || state.includes('checking')) return 1;
+	if (state.includes('queued')) return 2;
+	if (state.includes('stalled')) return 3;
+	return 4;
+}
+
 function mapNzbgetDownload(group) {
 	const totalBytes = toNumber(group.FileSizeMB ?? group.fileSizeMB ?? group.SizeMB ?? group.sizeMB, 0) * 1024 * 1024;
 	const downloadedBytes = toNumber(group.DownloadedSizeMB ?? group.downloadedSizeMB ?? group.CompletedSizeMB ?? group.completedSizeMB, 0) * 1024 * 1024;
@@ -815,7 +841,7 @@ async function getQbittorrentCookie() {
 
 	const loginResponse = await axios.post(loginUrl, loginBody.toString(), {
 		headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-		timeout: 5000,
+		timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 		validateStatus: () => true,
 	});
 
@@ -846,7 +872,7 @@ async function getNzbgetRpcResult(method, params = []) {
 		{method, params, id: 'home-dashboard', jsonrpc: '2.0'},
 		{
 			auth: {username: NZBGET_USERNAME, password: NZBGET_PASSWORD},
-			timeout: 5000,
+			timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 			validateStatus: () => true,
 		}
 	);
@@ -876,8 +902,8 @@ async function fetchQbittorrentDownloads() {
 		const cookie = await getQbittorrentCookie();
 		const response = await axios.get(targetUrl, {
 			headers: cookie ? {Cookie: cookie} : {},
-			params: {filter: 'downloading'},
-			timeout: 5000,
+			params: {filter: 'all', sort: 'priority', reverse: false},
+			timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 			validateStatus: () => true,
 		});
 
@@ -893,13 +919,23 @@ async function fetchQbittorrentDownloads() {
 			};
 		}
 
+		const downloads = response.data
+			.filter((torrent) => isQbittorrentActiveState(torrent?.state))
+			.sort((a, b) => {
+				const stateSort = qbittorrentStatePriority(a?.state) - qbittorrentStatePriority(b?.state);
+				if (stateSort !== 0) return stateSort;
+				return toNumber(b?.dlspeed, 0) - toNumber(a?.dlspeed, 0);
+			})
+			.map(mapQbittorrentDownload)
+			.slice(0, DOWNLOAD_ACTIVITY_MAX_ITEMS);
+
 		return {
 			name: 'qbittorrent',
 			configured: true,
 			online: true,
 			statusCode: response.status,
 			latencyMs: Date.now() - startedAt,
-			downloads: response.data.map(mapQbittorrentDownload).slice(0, 5),
+			downloads,
 			error: null,
 		};
 	} catch (err) {
@@ -931,7 +967,7 @@ async function fetchNzbgetDownloads() {
 				return status.includes('download') || status.includes('fetch') || activeDownloads > 0;
 			})
 			.map(mapNzbgetDownload)
-			.slice(0, 5);
+			.slice(0, DOWNLOAD_ACTIVITY_MAX_ITEMS);
 
 		return {
 			name: 'nzbget',
@@ -1004,7 +1040,7 @@ async function tryFetchProwlarrList(baseUrl, apiKey, path) {
 	try {
 		const response = await axios.get(url, {
 			headers,
-			timeout: 5000,
+			timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 			validateStatus: () => true,
 		});
 		if (response.status < 200 || response.status >= 400 || !Array.isArray(response.data)) {
@@ -1084,7 +1120,7 @@ async function probeQbittorrent() {
 		const cookie = await getQbittorrentCookie();
 		const statusResponse = await axios.get(targetUrl, {
 			headers: cookie ? {Cookie: cookie} : {},
-			timeout: 5000,
+			timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 			validateStatus: () => true,
 		});
 
@@ -1211,7 +1247,7 @@ async function fetchHomebridgeDevices() {
 	const token = await getToken();
 	const res = await axios.get(`${HOMEBRIDGE_URL}/api/accessories`, {
 		headers: {Authorization: `Bearer ${token}`},
-		timeout: 5000,
+		timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 	});
 
 	logHomebridge('accessories.fetch_success', {count: res.data.length});
@@ -1386,59 +1422,64 @@ router.post('/color', async (req, res) => {
 });
 
 router.get('/services-status', async (_req, res) => {
-	const [prowlarrDetails, qbittorrentClient, nzbgetClient, qbittorrentDownloads, nzbgetDownloads, nasUsage, nasMetrics] = await Promise.all([
-		fetchProwlarrDetails(),
-		probeQbittorrent(),
-		probeNzbget(),
-		fetchQbittorrentDownloads(),
-		fetchNzbgetDownloads(),
-		probeNasUsage(),
-		probeNasMetrics(),
-	]);
+	try {
+		const [prowlarrDetails, qbittorrentClient, nzbgetClient, qbittorrentDownloads, nzbgetDownloads, nasUsage, nasMetrics] = await Promise.all([
+			fetchProwlarrDetails(),
+			probeQbittorrent(),
+			probeNzbget(),
+			fetchQbittorrentDownloads(),
+			fetchNzbgetDownloads(),
+			probeNasUsage(),
+			probeNasMetrics(),
+		]);
 
-	const downloadActivity = buildSummary(
-		mergeClientLists([
-			qbittorrentDownloads,
-			nzbgetDownloads,
-		]),
-		Boolean(qbittorrentDownloads.configured || nzbgetDownloads.configured),
-		Boolean(qbittorrentDownloads.online || nzbgetDownloads.online)
-	);
+		const downloadActivity = buildSummary(
+			mergeClientLists([
+				qbittorrentDownloads,
+				nzbgetDownloads,
+			]),
+			Boolean(qbittorrentDownloads.configured || nzbgetDownloads.configured),
+			Boolean(qbittorrentDownloads.online || nzbgetDownloads.online)
+		);
 
-	const explicitClients = mergeClientLists([], [
-		mapProbeToClientItem(qbittorrentClient, 'qBittorrent'),
-		mapProbeToClientItem(nzbgetClient, 'NZBGet'),
-	]);
+		const explicitClients = mergeClientLists([], [
+			mapProbeToClientItem(qbittorrentClient, 'qBittorrent'),
+			mapProbeToClientItem(nzbgetClient, 'NZBGet'),
+		]);
 
-	const downloadClientsSummary = buildSummary(
-		explicitClients,
-		explicitClients.length > 0,
-		explicitClients.some((item) => item.online)
-	);
+		const downloadClientsSummary = buildSummary(
+			explicitClients,
+			explicitClients.length > 0,
+			explicitClients.some((item) => item.online)
+		);
 
-	res.json({
-		prowlarr: prowlarrDetails.prowlarr,
-		indexers: prowlarrDetails.indexers,
-		downloadClients: downloadClientsSummary,
-		downloadActivity,
-		nasUsage,
-		nasMetrics,
-		indexer: {
-			configured: prowlarrDetails.prowlarr.configured,
-			online: prowlarrDetails.prowlarr.online,
-			statusCode: prowlarrDetails.prowlarr.statusCode,
-			latencyMs: prowlarrDetails.prowlarr.latencyMs,
-			error: prowlarrDetails.prowlarr.error,
-		},
-		downloadClient: {
-			name: 'downloadClient',
-			configured: downloadClientsSummary.configured,
-			online: downloadClientsSummary.online,
-			statusCode: null,
-			latencyMs: null,
-			error: downloadClientsSummary.configured ? null : 'Not configured',
-		},
-	});
+		res.json({
+			prowlarr: prowlarrDetails.prowlarr,
+			indexers: prowlarrDetails.indexers,
+			downloadClients: downloadClientsSummary,
+			downloadActivity,
+			nasUsage,
+			nasMetrics,
+			indexer: {
+				configured: prowlarrDetails.prowlarr.configured,
+				online: prowlarrDetails.prowlarr.online,
+				statusCode: prowlarrDetails.prowlarr.statusCode,
+				latencyMs: prowlarrDetails.prowlarr.latencyMs,
+				error: prowlarrDetails.prowlarr.error,
+			},
+			downloadClient: {
+				name: 'downloadClient',
+				configured: downloadClientsSummary.configured,
+				online: downloadClientsSummary.online,
+				statusCode: null,
+				latencyMs: null,
+				error: downloadClientsSummary.configured ? null : 'Not configured',
+			},
+		});
+	} catch (err) {
+		console.error('Home services-status error:', getErrorDetails(err));
+		res.status(502).json({error: 'Failed to fetch services status'});
+	}
 });
 
 module.exports = router;
