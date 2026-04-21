@@ -321,7 +321,7 @@ onUnmounted(() => {
         <div class="mb-2 flex items-center justify-between gap-3">
           <p class="glass-section-label">Download activity</p>
           <span
-              class="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45">
+              class="rounded-full border bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] border-emerald-300/35 text-emerald-100">
             {{ summaryLabel(homeStore.serviceStatus.downloadActivity, 'Downloads') }}
           </span>
         </div>
@@ -404,7 +404,7 @@ onUnmounted(() => {
             :is-loading="combinedSuggestedLoading"
             :items="combinedSuggestedItems"
             :error="combinedSuggestedError"
-            title="Suggested movies"
+            title="Suggested"
         />
         <JellyfinCarousel
             :key="`recent-${jellyfinRefreshKey}`"
