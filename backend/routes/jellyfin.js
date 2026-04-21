@@ -1,5 +1,10 @@
 const express = require('express');
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
+
+axios.defaults.httpAgent = new http.Agent({keepAlive: false, maxSockets: 32});
+axios.defaults.httpsAgent = new https.Agent({keepAlive: false, maxSockets: 32});
 
 const router = express.Router();
 
@@ -124,6 +129,23 @@ function normalizeRecentItem(item) {
 
 function mapItems(items = []) {
 	return items.map((item) => mapItem(item, 0));
+}
+
+async function mapWithConcurrency(items = [], limit = 3, mapper) {
+	const safeLimit = Math.max(1, Math.min(Number(limit) || 1, items.length || 1));
+	const results = new Array(items.length);
+	let nextIndex = 0;
+
+	async function worker() {
+		while (nextIndex < items.length) {
+			const currentIndex = nextIndex;
+			nextIndex += 1;
+			results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+		}
+	}
+
+	await Promise.all(Array.from({length: safeLimit}, () => worker()));
+	return results;
 }
 
 async function fetchLatestEpisodeForSeries(userId, seriesId) {
@@ -497,22 +519,20 @@ router.get('/recent', async (_req, res) => {
 				dedupedByKey.set(key, item);
 			}
 		}
-		const deduped = await Promise.all(
-			Array.from(dedupedByKey.values()).map(async (item) => {
-				if (item.type !== 'Series' || item.subtitle) {
-					return item;
-				}
+		const deduped = await mapWithConcurrency(Array.from(dedupedByKey.values()), 3, async (item) => {
+			if (item.type !== 'Series' || item.subtitle) {
+				return item;
+			}
 
-				try {
-					const latestEpisode = await fetchLatestEpisodeForSeries(userId, item.id);
-					const subtitle = buildSubtitle(latestEpisode);
-					return subtitle ? {...item, subtitle} : item;
-				} catch (err) {
-					logJellyfin('recent.series_subtitle_lookup_failed', {seriesId: item.id, ...getErrorDetails(err)});
-					return item;
-				}
-			})
-		);
+			try {
+				const latestEpisode = await fetchLatestEpisodeForSeries(userId, item.id);
+				const subtitle = buildSubtitle(latestEpisode);
+				return subtitle ? {...item, subtitle} : item;
+			} catch (err) {
+				logJellyfin('recent.series_subtitle_lookup_failed', {seriesId: item.id, ...getErrorDetails(err)});
+				return item;
+			}
+		});
 
 		logJellyfin('recent.fetch_success', {
 			status: response.status,

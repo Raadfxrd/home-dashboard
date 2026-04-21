@@ -23,6 +23,7 @@ const clock = ref('');
 const clockInterval = ref(null);
 const serviceStatusInterval = ref(null);
 const jellyfinRefreshInterval = ref(null);
+const jellyfinRefreshKey = ref(0);
 const cpuHistory = ref([]);
 const ramHistory = ref([]);
 const diskHistory = ref([]);
@@ -30,6 +31,16 @@ const rxHistory = ref([]);
 const txHistory = ref([]);
 const HISTORY_LIMIT = 40;
 const JELLYFIN_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+
+async function refreshJellyfinData() {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await Promise.all([
+    jellyfinStore.fetchSuggestedWatches(),
+    jellyfinStore.fetchRecommendedShows(),
+    jellyfinStore.fetchRecentlyAdded(),
+  ]);
+  jellyfinRefreshKey.value += 1;
+}
 
 function pushHistory(historyRef, value, limit = HISTORY_LIMIT) {
   if (!Number.isFinite(value)) return;
@@ -115,6 +126,13 @@ function formatDuration(seconds) {
 function formatRate(bytesPerSecond) {
   const base = formatBytes(bytesPerSecond);
   return base === '—' ? '—' : `${base}/s`;
+}
+
+function downloadEtaLabel(download) {
+  const kind = downloadStateKind(download);
+  if (kind === 'stalled') return '∞';
+  if (kind === 'queued') return '';
+  return formatDuration(download.etaSeconds);
 }
 
 function downloadStateKind(download) {
@@ -236,14 +254,10 @@ onMounted(async () => {
   await weatherStore.fetchAmsterdamWeather();
   await homeStore.fetchDevices();
   await homeStore.fetchServiceStatus();
-  await jellyfinStore.fetchSuggestedWatches();
-  await jellyfinStore.fetchRecommendedShows();
-  await jellyfinStore.fetchRecentlyAdded();
+  await refreshJellyfinData();
 
   jellyfinRefreshInterval.value = setInterval(() => {
-    jellyfinStore.fetchSuggestedWatches();
-    jellyfinStore.fetchRecommendedShows();
-    jellyfinStore.fetchRecentlyAdded();
+    void refreshJellyfinData();
   }, JELLYFIN_REFRESH_INTERVAL_MS);
 
   serviceStatusInterval.value = setInterval(() => {
@@ -361,7 +375,7 @@ onUnmounted(() => {
                 </div>
                 <div class="flex items-center justify-between gap-3 text-[10px] text-white/40">
                   <span>{{ formatBytes(download.speedBytesPerSecond) }}/s</span>
-                  <span>{{ formatDuration(download.etaSeconds) }}</span>
+                  <span v-if="downloadEtaLabel(download)">{{ downloadEtaLabel(download) }}</span>
                 </div>
               </div>
             </div>
@@ -386,12 +400,14 @@ onUnmounted(() => {
           </RouterLink>
         </div>
         <JellyfinCarousel
+            :key="`suggested-${jellyfinRefreshKey}`"
             :is-loading="combinedSuggestedLoading"
             :items="combinedSuggestedItems"
             :error="combinedSuggestedError"
             title="Suggested movies"
         />
         <JellyfinCarousel
+            :key="`recent-${jellyfinRefreshKey}`"
             :is-loading="jellyfinStore.recentLoading"
             :items="jellyfinStore.recentlyAdded"
             :error="jellyfinStore.recentError"

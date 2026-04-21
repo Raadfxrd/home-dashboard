@@ -1,7 +1,12 @@
 const express = require('express');
 const axios = require('axios');
 const fs = require('fs');
+const http = require('http');
+const https = require('https');
 const snmp = require('net-snmp');
+
+axios.defaults.httpAgent = new http.Agent({keepAlive: false, maxSockets: 32});
+axios.defaults.httpsAgent = new https.Agent({keepAlive: false, maxSockets: 32});
 
 const router = express.Router();
 
@@ -48,6 +53,7 @@ const nasMetricsCache = {
 	expiresAt: 0,
 	inFlight: null,
 };
+let qbittorrentCookiePromise = null;
 const nasNetworkSnapshot = {
 	timestamp: 0,
 	interfaces: new Map(),
@@ -833,28 +839,37 @@ async function getQbittorrentCookie() {
 	if (!QBITTORRENT_USERNAME || !QBITTORRENT_PASSWORD) {
 		throw new Error('Missing credentials');
 	}
+	if (qbittorrentCookiePromise) {
+		return qbittorrentCookiePromise;
+	}
 
 	const loginBody = new URLSearchParams({
 		username: QBITTORRENT_USERNAME,
 		password: QBITTORRENT_PASSWORD,
 	});
 
-	const loginResponse = await axios.post(loginUrl, loginBody.toString(), {
+	qbittorrentCookiePromise = axios.post(loginUrl, loginBody.toString(), {
 		headers: {'Content-Type': 'application/x-www-form-urlencoded'},
 		timeout: EXTERNAL_HTTP_TIMEOUT_MS,
 		validateStatus: () => true,
-	});
+	})
+		.then((loginResponse) => {
+			if (loginResponse.status < 200 || loginResponse.status >= 400) {
+				throw new Error(`Login HTTP ${loginResponse.status}`);
+			}
 
-	if (loginResponse.status < 200 || loginResponse.status >= 400) {
-		throw new Error(`Login HTTP ${loginResponse.status}`);
-	}
+			const cookie = (loginResponse.headers['set-cookie'] || []).map((value) => value.split(';')[0]).join('; ');
+			if (!cookie) {
+				throw new Error('Missing session cookie');
+			}
 
-	const cookie = (loginResponse.headers['set-cookie'] || []).map((value) => value.split(';')[0]).join('; ');
-	if (!cookie) {
-		throw new Error('Missing session cookie');
-	}
+			return cookie;
+		})
+		.finally(() => {
+			qbittorrentCookiePromise = null;
+		});
 
-	return cookie;
+	return qbittorrentCookiePromise;
 }
 
 async function getNzbgetRpcResult(method, params = []) {
@@ -1220,10 +1235,8 @@ async function fetchProwlarrDetails() {
 		};
 	}
 
-	const [rawIndexers, rawIndexerStatuses] = await Promise.all([
-		tryFetchProwlarrList(INDEXER_URL, INDEXER_API_KEY, '/api/v1/indexer'),
-		tryFetchProwlarrList(INDEXER_URL, INDEXER_API_KEY, '/api/v1/indexerstatus'),
-	]);
+	const rawIndexers = await tryFetchProwlarrList(INDEXER_URL, INDEXER_API_KEY, '/api/v1/indexer');
+	const rawIndexerStatuses = await tryFetchProwlarrList(INDEXER_URL, INDEXER_API_KEY, '/api/v1/indexerstatus');
 
 	const indexers = rawIndexers.map((indexer) => {
 		const statusEntry = indexStatusFor(rawIndexerStatuses, indexer.id);
@@ -1423,15 +1436,13 @@ router.post('/color', async (req, res) => {
 
 router.get('/services-status', async (_req, res) => {
 	try {
-		const [prowlarrDetails, qbittorrentClient, nzbgetClient, qbittorrentDownloads, nzbgetDownloads, nasUsage, nasMetrics] = await Promise.all([
-			fetchProwlarrDetails(),
-			probeQbittorrent(),
-			probeNzbget(),
-			fetchQbittorrentDownloads(),
-			fetchNzbgetDownloads(),
-			probeNasUsage(),
-			probeNasMetrics(),
-		]);
+		const prowlarrDetails = await fetchProwlarrDetails();
+		const qbittorrentClient = await probeQbittorrent();
+		const qbittorrentDownloads = await fetchQbittorrentDownloads();
+		const nzbgetClient = await probeNzbget();
+		const nzbgetDownloads = await fetchNzbgetDownloads();
+		const nasUsage = await probeNasUsage();
+		const nasMetrics = await probeNasMetrics();
 
 		const downloadActivity = buildSummary(
 			mergeClientLists([
