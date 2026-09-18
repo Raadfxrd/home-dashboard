@@ -2,6 +2,7 @@
 import {computed, onMounted, ref, watch} from 'vue';
 import {RouterLink, useRoute} from 'vue-router';
 import MediaCard from '../components/MediaCard.vue';
+import AppIcon from '../components/AppIcon.vue';
 import {get} from '../composables/useApi.js';
 
 const route = useRoute();
@@ -16,7 +17,6 @@ const sortBy = ref('title');
 const sortOrder = ref('asc');
 
 const kind = computed(() => (route.params.kind === 'shows' ? 'shows' : 'movies'));
-const pageTitle = computed(() => (kind.value === 'shows' ? 'All Shows' : 'All Movies'));
 
 async function fetchPage(startIndex = 0, append = false) {
   if (append) {
@@ -40,7 +40,7 @@ async function fetchPage(startIndex = 0, append = false) {
     hasMore.value = Boolean(response?.hasMore);
     total.value = Number(response?.total || items.value.length);
   } catch (err) {
-    error.value = err.response?.data?.error || 'Failed to load library';
+    error.value = err.response?.data?.error || 'Could not reach the library. Check that Jellyfin is running.';
   } finally {
     isLoading.value = false;
     isLoadingMore.value = false;
@@ -52,116 +52,96 @@ function loadMore() {
   fetchPage(items.value.length, true);
 }
 
-function refreshList() {
-  fetchPage(0, false);
-}
-
-watch(
-    () => route.params.kind,
-    () => {
-      fetchPage(0, false);
-    }
-);
-
-onMounted(() => {
-  fetchPage(0, false);
-});
+watch(() => route.params.kind, () => fetchPage(0, false));
+onMounted(() => fetchPage(0, false));
 </script>
 
 <template>
-  <div class="relative min-h-screen text-white">
-    <main class="mx-auto max-w-screen-xl space-y-6 px-4 pb-10 pt-8 md:px-6">
-      <header class="glass flex items-center justify-between px-4 py-3">
-        <div>
-          <p class="glass-section-label">Media Library</p>
-          <h1 class="mt-1 text-xl font-semibold tracking-tight">{{ pageTitle }}</h1>
-          <p class="mt-1 text-xs text-white/45">{{ total }} items</p>
-        </div>
-        <RouterLink
-            class="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/[0.09]"
-            to="/">
-          Back
+  <div class="relative z-10 flex min-h-dvh flex-col">
+    <header class="chrome sticky top-0 z-30 border-b border-line-soft">
+      <div class="mx-auto flex max-w-[1560px] items-center justify-between gap-4 px-5 py-3 md:px-9">
+        <RouterLink class="link-quiet press flex items-center gap-1.5 text-[0.875rem]" to="/">
+          <AppIcon :size="15" name="back"/>
+          Home
         </RouterLink>
-      </header>
-
-      <div class="flex gap-2">
-        <RouterLink
-            :class="kind === 'movies' ? 'bg-white/14 text-white' : 'bg-white/5 text-white/70'"
-            class="rounded-lg border border-white/15 px-3 py-1.5 text-xs hover:bg-white/[0.12]"
-            to="/media/movies"
-        >
-          Movies
-        </RouterLink>
-        <RouterLink
-            :class="kind === 'shows' ? 'bg-white/14 text-white' : 'bg-white/5 text-white/70'"
-            class="rounded-lg border border-white/15 px-3 py-1.5 text-xs hover:bg-white/[0.12]"
-            to="/media/shows"
-        >
-          Shows
-        </RouterLink>
+        <span class="t-note t-read">{{ total || items.length }} titles</span>
       </div>
+    </header>
 
-      <div class="glass flex flex-wrap items-center gap-3 px-4 py-3">
-        <div class="flex items-center gap-2">
-          <span class="text-[10px] uppercase tracking-[0.16em] text-white/45">Sort by</span>
+    <main class="mx-auto w-full max-w-[1560px] flex-1 px-5 pb-16 pt-8 md:px-9">
+      <div class="settle mb-8 flex flex-wrap items-end justify-between gap-6">
+        <div>
+          <h1 class="text-[2.6rem] font-semibold leading-none tracking-[-0.035em] text-ink">Library</h1>
+          <!-- Movies and shows are the same library seen two ways, so they read
+               as a switch rather than as two destinations. -->
+          <div class="mt-5 flex gap-1">
+            <RouterLink
+                v-for="tab in [{to: '/media/movies', label: 'Films', key: 'movies'}, {to: '/media/shows', label: 'Shows', key: 'shows'}]"
+                :key="tab.key"
+                :to="tab.to"
+                :class="kind === tab.key ? 'bg-raised text-ink' : 'text-dim hover:text-ink'"
+                class="press rounded-md px-3.5 py-1.5 text-[0.875rem] transition-colors duration-200"
+            >
+              {{ tab.label }}
+            </RouterLink>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="sr-only" for="sort-by">Sort by</label>
           <select
+              id="sort-by"
               v-model="sortBy"
-              class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-white/80 outline-none hover:bg-white/[0.09]"
-              @change="refreshList"
+              class="panel press cursor-pointer px-3 py-2 text-[0.8125rem] text-dim outline-none hover:text-ink"
+              @change="fetchPage(0, false)"
           >
             <option value="title">Title</option>
             <option value="year">Year</option>
-            <option value="added">Recently Added</option>
+            <option value="added">Recently added</option>
           </select>
-        </div>
 
-        <div class="flex items-center gap-2">
-          <span class="text-[10px] uppercase tracking-[0.16em] text-white/45">Order</span>
+          <label class="sr-only" for="sort-order">Order</label>
           <select
+              id="sort-order"
               v-model="sortOrder"
-              class="rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs text-white/80 outline-none hover:bg-white/[0.09]"
-              @change="refreshList"
+              class="panel press cursor-pointer px-3 py-2 text-[0.8125rem] text-dim outline-none hover:text-ink"
+              @change="fetchPage(0, false)"
           >
-            <option value="asc">Ascending</option>
-            <option value="desc">Descending</option>
+            <option value="asc">A–Z</option>
+            <option value="desc">Z–A</option>
           </select>
         </div>
       </div>
 
-      <div v-if="isLoading" class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-        <div v-for="i in 12" :key="i"
-             class="rounded-[1.45rem] border border-white/10 bg-white/[0.05] motion-pulse-soft">
-          <div class="aspect-[2/3] bg-white/5"></div>
-          <div class="p-2.5 space-y-1.5">
-            <div class="h-2.5 rounded-full bg-white/10"></div>
-            <div class="h-2.5 w-2/3 rounded-full bg-white/10"></div>
-          </div>
+      <div v-if="isLoading" class="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-7">
+        <div v-for="i in 14" :key="i">
+          <div class="well aspect-[2/3] animate-pulse"></div>
+          <div class="mt-2 h-3 w-4/5 animate-pulse rounded bg-line-soft"></div>
         </div>
       </div>
 
-      <div v-else-if="error" class="glass px-5 py-6 text-center text-xs tracking-wide text-red-300/80">
-        {{ error }}
-      </div>
+      <p v-else-if="error" class="panel flex items-center gap-2.5 p-5 t-body text-ink">
+        <span class="dot dot-fault"></span>{{ error }}
+      </p>
 
-      <div v-else-if="!items.length" class="glass px-5 py-6 text-center text-xs tracking-wide text-white/35">
-        Nothing to show here yet.
-      </div>
+      <p v-else-if="!items.length" class="panel p-5 t-note">
+        Nothing in here yet. Anything you add to Jellyfin will show up on this page.
+      </p>
 
-      <div v-else class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+      <div v-else class="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-7">
         <MediaCard v-for="item in items" :key="item.id" :item="item"/>
       </div>
 
-      <div v-if="hasMore" class="flex justify-center">
+      <div v-if="hasMore" class="mt-10 flex justify-center">
         <button
             :disabled="isLoadingMore"
-            class="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-xs text-white/75 hover:bg-white/[0.09] disabled:cursor-not-allowed disabled:opacity-50"
+            class="panel press px-5 py-2.5 text-[0.875rem] text-dim hover:text-ink disabled:opacity-50"
             type="button"
             @click="loadMore"
         >
-          {{ isLoadingMore ? 'Loading...' : 'Load more' }}
+          {{ isLoadingMore ? 'Loading' : 'Show more' }}
         </button>
       </div>
     </main>
   </div>
 </template>
-

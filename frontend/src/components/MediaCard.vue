@@ -5,64 +5,43 @@ defineProps({
   item: {type: Object, required: true},
 });
 
-function hasAnyLink(item) {
-  return Boolean(item?.links?.jellyfin || item?.url);
+function link(item) {
+  return item?.links?.jellyfin || item?.url || null;
 }
 </script>
 
 <template>
   <component
-      :is="hasAnyLink(item) ? 'a' : 'div'"
-      :href="item?.links?.jellyfin || item?.url || undefined"
-      :target="hasAnyLink(item) ? '_blank' : undefined"
-      :rel="hasAnyLink(item) ? 'noopener noreferrer' : undefined"
-      :class="hasAnyLink(item) ? 'cursor-pointer hover:-translate-y-0.5 hover:bg-white/[0.085] focus-visible:ring-2 focus-visible:ring-white/25' : 'cursor-default'"
-      class="media-card motion-fade-in overflow-hidden transition-all duration-300"
+      :is="link(item) ? 'a' : 'div'"
+      :href="link(item) || undefined"
+      :target="link(item) ? '_blank' : undefined"
+      :rel="link(item) ? 'noopener noreferrer' : undefined"
+      class="group block"
       data-media-card
   >
-    <div class="relative aspect-[2/3] bg-white/5">
+    <div class="well relative aspect-[2/3] overflow-hidden">
       <img
           v-if="item.poster"
           :alt="item.title"
           :src="item.poster"
-          class="w-full h-full object-cover"
+          class="h-full w-full object-cover transition-transform duration-500 ease-ease group-hover:scale-[1.04]"
           loading="lazy"
       />
-      <div v-else class="flex h-full w-full items-center justify-center text-white/30">
-        <span class="glass-icon-chip h-11 w-11 rounded-2xl">
-          <AppIcon :size="22" name="film"/>
-        </span>
-      </div>
+      <span v-else class="flex h-full w-full items-center justify-center text-faint">
+        <AppIcon :size="22" name="film"/>
+      </span>
 
-      <div v-if="item.progress > 0" class="absolute bottom-0 left-0 right-0">
-        <div class="h-[3px] bg-white/10">
-          <div
-              :style="{ width: `${item.progress}%` }"
-              class="h-full transition-all duration-500"
-              style="background: rgba(255,255,255,0.82);"
-          ></div>
-        </div>
-      </div>
+      <!-- Resume position, drawn on the artwork where it belongs. -->
+      <span v-if="item.progress > 0" class="absolute inset-x-0 bottom-0 h-[3px] bg-black/50">
+        <span class="block h-full bg-ink/90" :style="{width: `${item.progress}%`}"></span>
+      </span>
     </div>
 
-    <div class="p-2">
-      <div class="truncate text-[11px] font-medium leading-tight text-white/80">{{ item.title }}</div>
-      <div v-if="item.year" class="text-[10px] text-white/30 mt-0.5">{{ item.year }}</div>
-      <div v-if="item.subtitle" class="mt-0.5 truncate text-[10px] leading-tight text-white/45">
-        {{ item.subtitle }}
-      </div>
-    </div>
-
+    <p class="mt-2 truncate text-[0.8125rem] leading-tight text-ink/90">{{ item.title }}</p>
+    <p class="mt-0.5 truncate t-note text-[0.75rem]">
+      <span v-if="item.year" class="t-read">{{ item.year }}</span>
+      <span v-if="item.year && item.subtitle"> · </span>
+      <span v-if="item.subtitle">{{ item.subtitle }}</span>
+    </p>
   </component>
 </template>
-
-<style scoped>
-.media-card {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1.35rem;
-  backdrop-filter: blur(24px) saturate(140%);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  box-shadow: none;
-}
-</style>

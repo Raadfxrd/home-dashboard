@@ -5,16 +5,30 @@ export default {
   theme: {
     extend: {
       colors: {
-        glass: {
-          white: 'rgba(255,255,255,0.06)',
-          border: 'rgba(255,255,255,0.10)',
-        },
+        base: 'rgb(var(--base-rgb) / <alpha-value>)',
+        raised: 'rgb(var(--raised-rgb) / <alpha-value>)',
+        sunk: 'rgb(var(--sunk-rgb) / <alpha-value>)',
+        line: 'rgb(var(--line-rgb) / <alpha-value>)',
+        'line-soft': 'rgb(var(--line-soft-rgb) / <alpha-value>)',
+        ink: 'rgb(var(--text-rgb) / <alpha-value>)',
+        dim: 'rgb(var(--text-dim-rgb) / <alpha-value>)',
+        faint: 'rgb(var(--text-faint-rgb) / <alpha-value>)',
+        live: 'rgb(var(--live-rgb) / <alpha-value>)',
+        warn: 'rgb(var(--warn-rgb) / <alpha-value>)',
+        fault: 'rgb(var(--fault-rgb) / <alpha-value>)',
+        accent: 'rgb(var(--accent-rgb) / <alpha-value>)',
       },
-      backdropBlur: {
-        xs: '4px',
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'system-ui', 'sans-serif'],
+        mono: ['ui-monospace', 'SF Mono', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
-      animation: {
-        'pulse-slow': 'pulse 6s cubic-bezier(0.4,0,0.6,1) infinite',
+      borderRadius: {
+        lg: 'var(--r-lg)',
+        md: 'var(--r-md)',
+        sm: 'var(--r-sm)',
+      },
+      transitionTimingFunction: {
+        ease: 'var(--ease)',
       },
     },
   },
