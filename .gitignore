@@ -29,3 +29,11 @@ Thumbs.db
 
 # Docker
 *.pid
+
+# Agent skills (installed via `npx skills add`, not part of the project)
+.agents/
+.claude/skills/
+skills-lock.json
+
+# Local Claude Code settings
+.claude/settings.local.json
