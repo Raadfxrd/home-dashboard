@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref} from 'vue';
+import {computed, onUnmounted, ref, watch} from 'vue';
 
 /**
  * A small time-series chart drawn as SVG, on a fixed scale it is given (so
@@ -28,13 +28,38 @@ const props = defineProps({
 const W = 1000;
 const mid = computed(() => props.height / 2);
 
+/* When the scale changes (a busier hour raises the network ceiling) the
+   ceiling glides to its new value, so the shapes stretch instead of jump. */
+const shownMax = ref(props.max);
+let tween = 0;
+const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+watch(() => props.max, (to) => {
+  cancelAnimationFrame(tween);
+  const from = shownMax.value;
+  if (reduceMotion || !Number.isFinite(from) || from === to) {
+    shownMax.value = to;
+    return;
+  }
+  const start = performance.now();
+  const step = (now) => {
+    const p = Math.min(1, (now - start) / 450);
+    const eased = 1 - (1 - p) ** 3;
+    shownMax.value = from + (to - from) * eased;
+    if (p < 1) tween = requestAnimationFrame(step);
+  };
+  tween = requestAnimationFrame(step);
+});
+
+onUnmounted(() => cancelAnimationFrame(tween));
+
 function x(t) {
   const span = props.to - props.from || 1;
   return ((t - props.from) / span) * W;
 }
 
 function y(value, index) {
-  const v = Math.max(0, Math.min(props.max, value)) / props.max;
+  const v = Math.max(0, Math.min(shownMax.value, value)) / shownMax.value;
   if (props.layout === 'mirror') {
     const reach = mid.value - 2;
     return index === 0 ? mid.value - v * reach : mid.value + v * reach;
@@ -174,6 +199,7 @@ const readout = computed(() => {
   >
     <svg
         class="absolute inset-0 h-full w-full overflow-visible"
+        :class="{'chart-reveal': !empty}"
         :viewBox="`0 0 ${W} ${height}`"
         preserveAspectRatio="none"
         aria-hidden="true"
@@ -208,7 +234,7 @@ const readout = computed(() => {
       />
     </svg>
 
-    <p v-if="empty" class="absolute inset-0 flex items-center justify-center t-note">
+    <p v-if="empty" class="chart-empty absolute inset-0 flex items-center justify-center t-note">
       Collecting history. This fills in over the next few minutes.
     </p>
 
@@ -222,7 +248,7 @@ const readout = computed(() => {
         ></span>
       </template>
       <div
-          class="chart-tip pointer-events-none absolute top-1 z-10 flex flex-col gap-1 rounded-md px-2.5 py-2"
+          class="chart-tip tip-in pointer-events-none absolute top-1 z-10 flex flex-col gap-1 rounded-md px-2.5 py-2"
           :style="readout.flip
             ? {right: `calc(${100 - readout.left}% + 12px)`}
             : {left: `calc(${readout.left}% + 12px)`}"
@@ -243,6 +269,43 @@ const readout = computed(() => {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
   border-radius: 4px;
+}
+
+/* The trace draws in from the left the first time data is there, which is
+   also every time the range changes (the chart is swapped for a new one). */
+.chart-reveal {
+  animation: chart-draw 560ms var(--ease) both;
+}
+
+@keyframes chart-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.chart-empty {
+  animation: fade-in 300ms var(--ease) both;
+}
+
+.tip-in {
+  animation: fade-in 120ms ease-out both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-reveal,
+  .chart-empty,
+  .tip-in {
+    animation: none;
+  }
 }
 
 .chart-tip {

@@ -1,5 +1,5 @@
 <script setup>
-import {computed, onMounted, ref, watch} from 'vue';
+import {computed, onMounted, ref, TransitionGroup, watch} from 'vue';
 import {RouterLink, useRoute} from 'vue-router';
 import MediaCard from '../components/MediaCard.vue';
 import AppIcon from '../components/AppIcon.vue';
@@ -65,6 +65,11 @@ function onSortByChange() {
   if (sortBy.value === 'added') sortOrder.value = 'desc';
   if (sortBy.value === 'title') sortOrder.value = 'asc';
 }
+
+/* Posters glide to their new place when the sort changes. Measuring every
+   card has a cost, so very large libraries just reorder. */
+const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const shelf = computed(() => (!reduceMotion && items.value.length <= 400 ? TransitionGroup : 'div'));
 
 watch(() => route.params.kind, load);
 onMounted(load);
@@ -141,10 +146,40 @@ onMounted(load);
         Nothing in here yet. Anything you add to Jellyfin will show up on this page.
       </p>
 
-      <div v-else class="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-7">
+      <component
+          :is="shelf"
+          v-else
+          :key="kind"
+          tag="div"
+          name="shelf"
+          class="shelf grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-7"
+      >
         <MediaCard v-for="item in sorted" :key="item.id" :item="item"/>
-      </div>
+      </component>
 
     </main>
   </div>
 </template>
+
+<style scoped>
+/* A switch between films and shows fades the new shelf in. */
+.shelf {
+  animation: shelf-in 260ms var(--ease) both;
+}
+
+@keyframes shelf-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.shelf-move {
+  transition: transform 480ms var(--ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shelf {
+    animation: none;
+  }
+}
+</style>

@@ -282,3 +282,31 @@ body {
 		--text-faint-rgb: 142 142 147;
 	}
 }
+
+/* A quiet crossfade for text that changes in place (a status, a summary). */
+.swap-enter-active,
+.swap-leave-active {
+	transition: opacity 160ms var(--ease), transform 220ms var(--ease);
+}
+
+.swap-enter-from {
+	opacity: 0;
+	transform: translateY(3px);
+}
+
+.swap-leave-to {
+	opacity: 0;
+	transform: translateY(-3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.swap-enter-active,
+	.swap-leave-active {
+		transition: opacity 120ms linear;
+	}
+
+	.swap-enter-from,
+	.swap-leave-to {
+		transform: none;
+	}
+}

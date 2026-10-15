@@ -1,5 +1,5 @@
 <script setup>
-import {computed, ref, watch} from 'vue';
+import {computed, onMounted, ref, watch} from 'vue';
 import AppIcon from './AppIcon.vue';
 import RollingNumber from './RollingNumber.vue';
 import WeatherBackdrop from './WeatherBackdrop.vue';
@@ -82,18 +82,26 @@ const rainSummary = computed(() => describeRain(shownSlots.value, windowLabel.va
 
 /* Rain on a log-ish scale so a drizzle still shows and a downpour doesn't
    swamp everything else: 0.1 mm/h is a short bar, 4 mm/h fills the track. */
-const rainBars = computed(() =>
-  shownSlots.value.map((slot) => {
+const rainBars = computed(() => {
+  const shown = shownSlots.value.length;
+  return (rain.value?.slots || []).map((slot, index) => {
     const wet = slot.mm >= 0.1;
     const level = wet ? Math.min(1, Math.log10(1 + slot.mm) / Math.log10(5)) : 0;
     return {
-      key: slot.time,
+      // Keyed by position, so a refresh animates heights instead of
+      // replacing bars, and a wider window grows the row in place.
+      key: index,
       wet,
-      height: wet ? Math.round(6 + level * 50) : 2,
+      inWindow: index < shown,
+      height: grown.value && wet ? Math.round(6 + level * 50) : 2,
       label: wet ? `${slot.time}, ${slot.mm.toFixed(1)} mm/h` : `${slot.time}, dry`,
     };
-  })
-);
+  });
+});
+
+/* Bars rise from the baseline the first time they appear. */
+const grown = ref(false);
+onMounted(() => requestAnimationFrame(() => requestAnimationFrame(() => (grown.value = true))));
 
 const rainTicks = computed(() => {
   const slots = shownSlots.value;
@@ -174,7 +182,9 @@ const forecast = computed(() =>
         <!-- Rain, next two hours -->
         <div v-if="rain?.available">
           <div class="flex items-center justify-between gap-4">
-            <p class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rainSummary }}</p>
+            <Transition name="swap" mode="out-in">
+              <p :key="rainSummary" class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rainSummary }}</p>
+            </Transition>
             <SegmentedControl
                 :model-value="activeWindow"
                 @update:model-value="rainWindow = $event"
@@ -184,15 +194,15 @@ const forecast = computed(() =>
             />
           </div>
           <div
-              class="mt-3 flex h-14 items-end gap-[3px] border-b border-line"
+              class="mt-3 flex h-14 items-end overflow-hidden border-b border-line"
               role="img"
               :aria-label="rainSummary"
           >
             <span
                 v-for="bar in rainBars"
                 :key="bar.key"
-                class="rain-bar flex-1 rounded-t-[3px]"
-                :class="bar.wet ? 'bg-accent' : 'bg-line'"
+                class="rain-bar rounded-t-[3px]"
+                :class="[bar.wet ? 'bg-accent' : 'bg-line', bar.inWindow ? 'in-window' : 'out-window']"
                 :style="{height: `${bar.height}px`}"
                 :title="bar.label"
             ></span>
@@ -201,9 +211,13 @@ const forecast = computed(() =>
             <span
                 v-for="tick in rainTicks"
                 :key="tick.key"
-                class="t-read absolute top-0"
+                class="absolute top-0"
                 :style="{left: tick.left}"
-            >{{ tick.text }}</span>
+            >
+              <Transition name="swap" mode="out-in">
+                <span :key="tick.text" class="t-read inline-block">{{ tick.text }}</span>
+              </Transition>
+            </span>
           </div>
         </div>
 
@@ -233,8 +247,24 @@ const forecast = computed(() =>
 </template>
 
 <style scoped>
+/* Bars outside the chosen window shrink to nothing, so switching between
+   1, 2 and 3 hours stretches or squeezes the row instead of redrawing it. */
 .rain-bar {
-  transition: height 600ms var(--ease);
+  flex: 1 1 0;
+  min-width: 0;
+  margin-right: 3px;
+  transition: height 600ms var(--ease), flex-grow 420ms var(--ease), margin 420ms var(--ease), opacity 300ms var(--ease);
+}
+
+.rain-bar:last-child,
+.rain-bar.in-window:has(+ .out-window) {
+  margin-right: 0;
+}
+
+.rain-bar.out-window {
+  flex-grow: 0;
+  margin-right: 0;
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -2,6 +2,7 @@
 import {computed} from 'vue';
 import TimeChart from './TimeChart.vue';
 import SegmentedControl from './SegmentedControl.vue';
+import RollingNumber from './RollingNumber.vue';
 
 /**
  * The NAS at a glance. A plain-language status line first, then the two
@@ -126,8 +127,10 @@ function meterTone(percent) {
     <div v-if="metrics.configured" class="panel">
       <!-- Status -->
       <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line-soft px-5 py-3.5">
-        <span :class="`dot dot-${status.tone}`"></span>
-        <span class="text-[0.9375rem] font-semibold text-ink">{{ status.text }}</span>
+        <span class="status-dot" :class="`dot dot-${status.tone}`"></span>
+        <Transition name="swap" mode="out-in">
+          <span :key="status.text" class="text-[0.9375rem] font-semibold text-ink">{{ status.text }}</span>
+        </Transition>
         <span v-if="status.detail" class="t-note">{{ status.detail }}</span>
         <span v-if="host && metrics.online" class="ml-auto t-note">{{ host }}</span>
       </div>
@@ -137,11 +140,14 @@ function meterTone(percent) {
         <div class="flex flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4">
           <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span class="t-body">Processor</span>
-            <span class="text-[1.75rem] font-semibold leading-none tracking-[-0.02em] text-ink">{{ Number.isFinite(cpu) ? `${cpu}%` : '–' }}</span>
-            <span class="ml-auto t-note">{{ cpuSummary }}</span>
+            <span class="text-[1.75rem] font-semibold leading-none tracking-[-0.02em] text-ink"><RollingNumber :value="cpu" suffix="%" fallback="–" digit-width="0.6em"/></span>
+            <Transition name="swap" mode="out-in">
+              <span :key="cpuSummary" class="ml-auto t-note">{{ cpuSummary }}</span>
+            </Transition>
           </div>
           <div class="flex gap-3">
             <TimeChart
+                :key="`cpu-${history?.range}`"
                 class="min-w-0 flex-1"
                 :points="points"
                 :from="span.from"
@@ -180,6 +186,7 @@ function meterTone(percent) {
           </div>
           <div class="flex gap-3">
             <TimeChart
+                :key="`net-${history?.range}`"
                 class="min-w-0 flex-1"
                 layout="mirror"
                 :points="points"
@@ -205,7 +212,7 @@ function meterTone(percent) {
           <div class="flex flex-col gap-2.5">
             <div class="flex items-baseline justify-between gap-2">
               <span class="t-body">Memory</span>
-              <span class="text-[1.0625rem] font-semibold text-ink">{{ Number.isFinite(ram) ? `${ram}%` : '–' }}</span>
+              <span class="text-[1.0625rem] font-semibold text-ink"><RollingNumber :value="ram" suffix="%" fallback="–"/></span>
             </div>
             <span class="well block h-1.5 overflow-hidden rounded-full">
               <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(ram)" :style="{width: `${Math.max(0, Math.min(100, ram || 0))}%`}"></span>
@@ -215,7 +222,7 @@ function meterTone(percent) {
           <div class="flex flex-col gap-2.5">
             <div class="flex items-baseline justify-between gap-2">
               <span class="t-body">Storage</span>
-              <span class="text-[1.0625rem] font-semibold text-ink">{{ Number.isFinite(disk) ? `${disk}%` : '–' }}</span>
+              <span class="text-[1.0625rem] font-semibold text-ink"><RollingNumber :value="disk" suffix="%" fallback="–"/></span>
             </div>
             <span class="well block h-1.5 overflow-hidden rounded-full">
               <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(disk)" :style="{width: `${Math.max(0, Math.min(100, disk || 0))}%`}"></span>
@@ -253,3 +260,8 @@ function meterTone(percent) {
   </section>
 </template>
 
+<style scoped>
+.status-dot {
+  transition: background-color 300ms var(--ease), box-shadow 300ms var(--ease);
+}
+</style>

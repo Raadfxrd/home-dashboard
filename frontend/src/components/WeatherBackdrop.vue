@@ -413,13 +413,27 @@ onMounted(() => {
   start();
 });
 
-watch(effect, () => {
-  reseed();
-  if (reduceMotion) drawStill();
+/* A change of weather fades out, swaps, and fades back in. */
+const fading = ref(false);
+let fadeTimer = null;
+watch(effect, (next, prev) => {
+  if (JSON.stringify(next) === JSON.stringify(prev)) return;
+  if (reduceMotion) {
+    reseed();
+    drawStill();
+    return;
+  }
+  clearTimeout(fadeTimer);
+  fading.value = true;
+  fadeTimer = setTimeout(() => {
+    reseed();
+    fading.value = false;
+  }, 450);
 }, {deep: true});
 
 onUnmounted(() => {
   cancelAnimationFrame(raf);
+  clearTimeout(fadeTimer);
   resizeObserver?.disconnect();
   intersectionObserver?.disconnect();
   document.removeEventListener('visibilitychange', onVisibility);
@@ -429,7 +443,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="box" class="weather-backdrop pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+  <div ref="box" class="weather-backdrop pointer-events-none absolute inset-0 overflow-hidden" :class="{'is-fading': fading}" aria-hidden="true">
     <canvas ref="skyCanvas" class="absolute inset-0 h-full w-full"></canvas>
     <canvas ref="fallCanvas" class="absolute inset-0 h-full w-full"></canvas>
   </div>
@@ -440,5 +454,10 @@ onUnmounted(() => {
 .weather-backdrop {
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+  transition: opacity 450ms var(--ease);
+}
+
+.weather-backdrop.is-fading {
+  opacity: 0;
 }
 </style>
