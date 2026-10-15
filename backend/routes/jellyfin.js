@@ -62,6 +62,9 @@ function isCollectionLike(item) {
 
 function jellyfinHeaders() {
 	return {
+		// Current Jellyfin expects the standard Authorization header; the
+		// legacy ones are kept for older servers.
+		Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"`,
 		'X-MediaBrowser-Token': JELLYFIN_API_KEY,
 		'X-Emby-Authorization': `MediaBrowser Token="${JELLYFIN_API_KEY}"`,
 	};
