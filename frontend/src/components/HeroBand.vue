@@ -13,6 +13,7 @@ const props = defineProps({
   away: {type: Object, default: null},
   outlook: {type: Object, default: null},
   isLoading: {type: Boolean, default: false},
+  outlookLoading: {type: Boolean, default: false},
 });
 
 /* OpenWeather's icon code is only used to pick a glyph from our own set. */
@@ -144,9 +145,32 @@ const forecast = computed(() =>
         <p class="mt-3 text-[1.0625rem] tracking-[-0.015em] text-dim">{{ date }}</p>
       </div>
 
-      <div v-if="isLoading" class="h-56 w-full max-w-[40rem] animate-pulse rounded-lg bg-raised/60"></div>
+      <div v-if="isLoading" class="flex w-full max-w-[40rem] flex-col gap-7" aria-busy="true" aria-label="Loading the weather">
+        <div class="flex items-end gap-4" aria-hidden="true">
+          <span class="skeleton h-[3.25rem] w-28"></span>
+          <span class="flex flex-col gap-2 pb-1">
+            <span class="skeleton h-4 w-32"></span>
+            <span class="skeleton h-3 w-56"></span>
+          </span>
+        </div>
+        <div aria-hidden="true">
+          <div class="flex items-center justify-between gap-4">
+            <span class="skeleton h-4 w-64 max-w-[70%]"></span>
+            <span class="skeleton h-[1.875rem] w-[6.5rem] rounded-[8px]"></span>
+          </div>
+          <div class="mt-3 flex h-14 items-end gap-[3px] border-b border-line">
+            <span v-for="i in 24" :key="i" class="skeleton h-[2px] flex-1 rounded-none"></span>
+          </div>
+          <div class="mt-2 flex h-4 justify-between pr-[20%]">
+            <span v-for="i in 4" :key="i" class="skeleton h-3 w-9"></span>
+          </div>
+        </div>
+        <div class="grid grid-cols-5 gap-2" aria-hidden="true">
+          <span v-for="i in 5" :key="i" class="skeleton h-[5.75rem] rounded-md"></span>
+        </div>
+      </div>
 
-      <div v-else-if="here" class="flex w-full max-w-[40rem] flex-col gap-7">
+      <div v-else-if="here" class="reveal flex w-full max-w-[40rem] flex-col gap-7">
 
         <!-- Now -->
         <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
@@ -179,8 +203,8 @@ const forecast = computed(() =>
           </dl>
         </div>
 
-        <!-- Rain, next two hours -->
-        <div v-if="rain?.available">
+        <!-- Rain, next hours -->
+        <div v-if="rain?.available" class="reveal">
           <div class="flex items-center justify-between gap-4">
             <Transition name="swap" mode="out-in">
               <p :key="rainSummary" class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rainSummary }}</p>
@@ -221,8 +245,21 @@ const forecast = computed(() =>
           </div>
         </div>
 
+        <div v-else-if="outlookLoading" aria-hidden="true">
+          <div class="flex items-center justify-between gap-4">
+            <span class="skeleton h-4 w-64 max-w-[70%]"></span>
+            <span class="skeleton h-[1.875rem] w-[6.5rem] rounded-[8px]"></span>
+          </div>
+          <div class="mt-3 flex h-14 items-end gap-[3px] border-b border-line">
+            <span v-for="i in 24" :key="i" class="skeleton h-[2px] flex-1 rounded-none"></span>
+          </div>
+          <div class="mt-2 flex h-4 justify-between pr-[20%]">
+            <span v-for="i in 4" :key="i" class="skeleton h-3 w-9"></span>
+          </div>
+        </div>
+
         <!-- Next 12 hours -->
-        <ol v-if="forecast.length" class="grid grid-cols-5 gap-2">
+        <ol v-if="forecast.length" class="reveal grid grid-cols-5 gap-2">
           <li
               v-for="slot in forecast"
               :key="slot.time"
@@ -239,6 +276,9 @@ const forecast = computed(() =>
             </span>
           </li>
         </ol>
+        <div v-else-if="outlookLoading" class="grid grid-cols-5 gap-2" aria-hidden="true">
+          <span v-for="i in 5" :key="i" class="skeleton h-[5.75rem] rounded-md"></span>
+        </div>
       </div>
 
       <p v-else class="t-note">Weather unavailable</p>

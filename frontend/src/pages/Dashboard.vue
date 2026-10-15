@@ -142,6 +142,7 @@ onUnmounted(() => {
           :here="weatherStore.amsterdamWeather"
           :away="weatherStore.locationWeather"
           :outlook="weatherStore.outlook"
+          :outlook-loading="weatherStore.outlookLoading"
           :is-loading="weatherStore.isLoading && !weatherStore.amsterdamWeather"
       />
 
@@ -154,12 +155,13 @@ onUnmounted(() => {
               :fallback="homeStore.serviceStatus.nasUsage"
               :history="homeStore.systemHistory"
               :range="homeStore.historyRange"
+              :loading="!homeStore.statusLoaded"
               @update:range="setRange"
           />
         </div>
 
         <div class="xl:col-span-7">
-          <DownloadList :activity="homeStore.serviceStatus.downloadActivity"/>
+          <DownloadList :activity="homeStore.serviceStatus.downloadActivity" :loading="!homeStore.statusLoaded"/>
         </div>
 
         <div class="xl:col-span-12">
@@ -194,7 +196,7 @@ onUnmounted(() => {
 
     <footer class="border-t border-line-soft px-5 py-5 md:px-9">
       <div class="mx-auto max-w-[1560px]">
-        <StatusStrip :status="homeStore.serviceStatus"/>
+        <StatusStrip :status="homeStore.serviceStatus" :loading="!homeStore.statusLoaded"/>
       </div>
     </footer>
   </div>

@@ -9,6 +9,7 @@ import {computed} from 'vue';
  */
 const props = defineProps({
   activity: {type: Object, required: true},
+  loading: {type: Boolean, default: false},
 });
 
 function formatBytes(bytes) {
@@ -91,10 +92,29 @@ const summary = computed(() => {
   <section class="settle">
     <header class="mb-4 flex items-baseline justify-between gap-4">
       <h2 class="t-section">Downloads</h2>
-      <p class="t-note t-read">{{ summary }}</p>
+      <span v-if="loading" class="skeleton h-3 w-40" aria-hidden="true"></span>
+      <p v-else class="reveal t-note t-read">{{ summary }}</p>
     </header>
 
-    <div v-if="clients.length" class="panel divide-y divide-line-soft">
+    <div v-if="loading" class="panel divide-y divide-line-soft" aria-busy="true" aria-label="Loading downloads">
+      <div v-for="c in 2" :key="c" class="p-4" aria-hidden="true">
+        <div class="mb-3 flex items-center gap-2.5">
+          <span class="skeleton h-2 w-2 rounded-full"></span>
+          <span class="skeleton h-3.5 w-24"></span>
+          <span class="skeleton ml-auto h-3 w-4"></span>
+        </div>
+        <div v-for="r in (c === 1 ? 4 : 1)" :key="r" class="py-2.5">
+          <div class="flex items-center gap-4">
+            <span class="skeleton h-3" :style="{width: `${[62, 48, 55, 40][r - 1]}%`}"></span>
+            <span class="skeleton ml-auto h-3 w-14"></span>
+            <span class="skeleton h-3 w-8"></span>
+          </div>
+          <span class="mt-2 block h-px w-full bg-line-soft"></span>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="clients.length" class="reveal panel divide-y divide-line-soft">
       <div v-for="client in clients" :key="client.id || client.name" class="p-4">
         <div class="mb-3 flex items-center gap-2.5">
           <span :class="client.online ? 'dot dot-live' : 'dot dot-fault'"></span>

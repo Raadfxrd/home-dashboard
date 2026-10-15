@@ -6,6 +6,7 @@ export const useWeatherStore = defineStore('weather', () => {
 	const amsterdamWeather = ref(null);
 	const locationWeather = ref(null);
 	const outlook = ref(null);
+	const outlookLoading = ref(true);
 	const isLoading = ref(false);
 	const error = ref(null);
 
@@ -36,6 +37,8 @@ export const useWeatherStore = defineStore('weather', () => {
 			outlook.value = await get('/weather/outlook', {city});
 		} catch {
 			outlook.value = null;
+		} finally {
+			outlookLoading.value = false;
 		}
 	}
 
@@ -43,6 +46,7 @@ export const useWeatherStore = defineStore('weather', () => {
 		amsterdamWeather,
 		locationWeather,
 		outlook,
+		outlookLoading,
 		isLoading,
 		error,
 		fetchAmsterdamWeather,

@@ -16,6 +16,7 @@ const props = defineProps({
   fallback: {type: Object, default: null},
   history: {type: Object, default: null},
   range: {type: String, default: '1h'},
+  loading: {type: Boolean, default: false},
 });
 
 const emit = defineEmits(['update:range']);
@@ -115,8 +116,9 @@ function meterTone(percent) {
   <section class="settle">
     <header class="mb-4 flex items-center justify-between gap-4">
       <h2 class="t-section">System</h2>
+      <span v-if="loading" class="skeleton h-[2.625rem] w-[10.5rem] rounded-[10px]" aria-hidden="true"></span>
       <SegmentedControl
-          v-if="metrics.configured"
+          v-else-if="metrics.configured"
           :model-value="range"
           :options="[{value: '1h', label: '1 hour'}, {value: '24h', label: '24 hours'}]"
           label="Time range"
@@ -124,7 +126,35 @@ function meterTone(percent) {
       />
     </header>
 
-    <div v-if="metrics.configured" class="panel">
+    <!-- First load: the card's own shape, so nothing moves when data lands. -->
+    <div v-if="loading" class="panel" aria-busy="true" aria-label="Loading NAS status">
+      <div class="flex h-[3.4rem] items-center gap-2.5 border-b border-line-soft px-5" aria-hidden="true">
+        <span class="skeleton h-2 w-2 rounded-full"></span>
+        <span class="skeleton h-4 w-36"></span>
+        <span class="skeleton ml-auto h-3 w-28"></span>
+      </div>
+      <div v-for="(h, i) in [112, 88]" :key="h" class="flex flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4" aria-hidden="true">
+        <div class="flex items-center gap-3" :class="i === 0 ? 'h-7' : 'h-5'">
+          <span class="skeleton h-4 w-20"></span>
+          <span v-if="i === 0" class="skeleton h-7 w-16"></span>
+          <span class="skeleton ml-auto h-3 w-40"></span>
+        </div>
+        <div class="flex gap-3">
+          <span class="skeleton min-w-0 flex-1 rounded-md" :style="{height: `${h}px`}"></span>
+          <span class="w-14 shrink-0"></span>
+        </div>
+        <span v-if="i === 0" class="h-4"></span>
+      </div>
+      <div class="grid grid-cols-2 gap-7 px-5 pb-5 pt-4" aria-hidden="true">
+        <div v-for="m in 2" :key="m" class="flex flex-col gap-2.5">
+          <div class="flex h-6 items-center justify-between"><span class="skeleton h-4 w-16"></span><span class="skeleton h-4 w-10"></span></div>
+          <span class="skeleton h-1.5 rounded-full"></span>
+          <span class="flex h-5 items-center"><span class="skeleton h-3 w-28"></span></span>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="metrics.configured" class="reveal panel">
       <!-- Status -->
       <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line-soft px-5 py-3.5">
         <span class="status-dot" :class="`dot dot-${status.tone}`"></span>
@@ -148,6 +178,7 @@ function meterTone(percent) {
           <div class="flex gap-3">
             <TimeChart
                 :key="`cpu-${history?.range}`"
+                :loading="!history"
                 class="min-w-0 flex-1"
                 :points="points"
                 :from="span.from"
@@ -187,6 +218,7 @@ function meterTone(percent) {
           <div class="flex gap-3">
             <TimeChart
                 :key="`net-${history?.range}`"
+                :loading="!history"
                 class="min-w-0 flex-1"
                 layout="mirror"
                 :points="points"

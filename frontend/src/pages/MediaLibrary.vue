@@ -133,8 +133,8 @@ onMounted(load);
 
       <div v-if="isLoading" class="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-7">
         <div v-for="i in 14" :key="i">
-          <div class="well aspect-[2/3] animate-pulse"></div>
-          <div class="mt-2 h-3 w-4/5 animate-pulse rounded bg-line-soft"></div>
+          <div class="well skeleton aspect-[2/3]"></div>
+          <div class="skeleton mt-2 h-3 w-4/5"></div>
         </div>
       </div>
 

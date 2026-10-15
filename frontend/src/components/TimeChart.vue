@@ -23,6 +23,7 @@ const props = defineProps({
   format: {type: Function, default: (v) => `${Math.round(v)}`},
   timeFormat: {type: Function, default: (t) => new Date(t).toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'})},
   label: {type: String, default: 'Chart'},
+  loading: {type: Boolean, default: false},
 });
 
 const W = 1000;
@@ -234,7 +235,8 @@ const readout = computed(() => {
       />
     </svg>
 
-    <p v-if="empty" class="chart-empty absolute inset-0 flex items-center justify-center t-note">
+    <span v-if="loading" class="skeleton absolute inset-0 rounded-md" aria-hidden="true"></span>
+    <p v-else-if="empty" class="chart-empty absolute inset-0 flex items-center justify-center t-note">
       Collecting history. This fills in over the next few minutes.
     </p>
 

@@ -5,6 +5,9 @@ import {get} from '../composables/useApi.js';
 export const useHomeStore = defineStore('home', () => {
 	const serviceStatusRequest = ref(null);
 	const systemHistory = ref(null);
+	// False until the first status answer (or failure) arrives, so the page
+	// shows placeholders instead of "not configured" on load.
+	const statusLoaded = ref(false);
 	const historyRange = ref('1h');
 	const serviceStatus = ref({
 		prowlarr: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
@@ -81,6 +84,7 @@ export const useHomeStore = defineStore('home', () => {
 				return serviceStatus.value;
 			})
 			.finally(() => {
+				statusLoaded.value = true;
 				serviceStatusRequest.value = null;
 			});
 
@@ -99,6 +103,7 @@ export const useHomeStore = defineStore('home', () => {
 	}
 
 	return {
+		statusLoaded,
 		systemHistory,
 		historyRange,
 		fetchSystemHistory,

@@ -9,6 +9,7 @@ import {computed, onMounted, onUnmounted, ref} from 'vue';
  */
 const props = defineProps({
   status: {type: Object, required: true},
+  loading: {type: Boolean, default: false},
 });
 
 const TONE = {
@@ -142,7 +143,13 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="root" class="flex flex-wrap items-center gap-x-3 gap-y-2">
+  <div v-if="loading" class="flex flex-wrap items-center gap-x-3 gap-y-2" aria-busy="true" aria-label="Checking services">
+    <span v-for="w in [92, 140, 84]" :key="w" class="flex items-center gap-2.5 px-2.5 py-2" aria-hidden="true">
+      <span class="skeleton h-2 w-2 rounded-full"></span>
+      <span class="skeleton h-3" :style="{width: `${w}px`}"></span>
+    </span>
+  </div>
+  <div v-else ref="root" class="reveal flex flex-wrap items-center gap-x-3 gap-y-2">
     <div
         v-for="(row, index) in rows"
         :key="row.key"

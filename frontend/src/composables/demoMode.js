@@ -311,6 +311,9 @@ function match(url = '') {
 	return null;
 }
 
+// ?slow=1 stretches every answer, to look at the loading placeholders.
+const SLOW = typeof location !== 'undefined' && new URLSearchParams(location.search).get('slow') ? 12 : 1;
+
 export function installDemoMode() {
 	api.interceptors.request.use((config) => {
 		const params = config.params
@@ -324,7 +327,7 @@ export function installDemoMode() {
 			new Promise((resolve) => {
 				setTimeout(
 					() => resolve({data, status: 200, statusText: 'OK', headers: {}, config}),
-					120 + Math.random() * 260
+					(120 + Math.random() * 260) * SLOW
 				);
 			});
 		return config;
