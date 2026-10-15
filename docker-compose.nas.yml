@@ -5,6 +5,8 @@ name: home-dashboard
 services:
   dashboard:
     build: .
+    image: home-dashboard
+    container_name: home-dashboard
     env_file: .env
     environment:
       # Disk usage is read with statfs, so any folder on the NAS volume works.

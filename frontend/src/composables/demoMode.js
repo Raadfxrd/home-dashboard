@@ -170,9 +170,11 @@ function servicesStatus() {
 		indexers: {configured: true, online: true, total: 6, enabled: 6, onlineCount: 5, items: [
 			{id: 'i1', name: 'Indexer A', online: true}, {id: 'i2', name: 'Indexer B', online: true},
 			{id: 'i3', name: 'Indexer C', online: true}, {id: 'i4', name: 'Indexer D', online: true},
-			{id: 'i5', name: 'Indexer E', online: true}, {id: 'i6', name: 'Indexer F', online: false},
+			{id: 'i5', name: 'Indexer E', online: true}, {id: 'i6', name: 'Indexer F', online: false, error: 'Query limit reached'},
 		]},
-		downloadClients: {configured: true, online: true, total: 2, enabled: 2, onlineCount: 2, items: []},
+		downloadClients: {configured: true, online: true, total: 2, enabled: 2, onlineCount: 2, items: [
+			{id: 'qbittorrent', name: 'qBittorrent', enabled: true, online: true}, {id: 'nzbget', name: 'NZBGet', enabled: true, online: true},
+		]},
 		downloadActivity: {
 			configured: true, online: true, total: 2, enabled: 2, onlineCount: 2,
 			items: [
