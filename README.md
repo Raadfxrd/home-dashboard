@@ -1,6 +1,6 @@
 # home-dashboard
 
-Vue + Express dashboard for weather, Homebridge, media, download activity, and NAS health.
+Vue + Express dashboard for weather, media, download activity, and NAS health.
 
 ## Quick start
 

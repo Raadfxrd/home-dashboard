@@ -2,7 +2,6 @@
 import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
 import {RouterLink} from 'vue-router';
 import HeroBand from '../components/HeroBand.vue';
-import HomeKitPanel from '../components/HomeKitPanel.vue';
 import SystemReadout from '../components/SystemReadout.vue';
 import DownloadList from '../components/DownloadList.vue';
 import MediaRail from '../components/MediaRail.vue';
@@ -107,7 +106,6 @@ onMounted(() => {
   clockTimer = setInterval(updateClock, 1000);
 
   weatherStore.fetchAmsterdamWeather();
-  homeStore.fetchDevices();
   homeStore.fetchServiceStatus();
   refreshJellyfin();
 
@@ -151,10 +149,6 @@ onUnmounted(() => {
       <!-- A grid that does not rearrange itself as data lands. Everything
            keeps its place so it can be found without reading. -->
       <main class="grid grid-cols-1 gap-x-8 gap-y-10 px-5 pb-14 md:px-9 xl:grid-cols-12">
-        <div class="xl:col-span-7">
-          <HomeKitPanel/>
-        </div>
-
         <div class="xl:col-span-5">
           <SystemReadout
               :metrics="nas"
@@ -166,7 +160,7 @@ onUnmounted(() => {
           />
         </div>
 
-        <div class="xl:col-span-12">
+        <div class="xl:col-span-7">
           <DownloadList :activity="homeStore.serviceStatus.downloadActivity"/>
         </div>
 
@@ -205,50 +199,6 @@ onUnmounted(() => {
         <StatusStrip :status="homeStore.serviceStatus"/>
       </div>
     </footer>
-
-    <!-- Confirmations, anchored bottom-right, entering and leaving the same way. -->
-    <div class="pointer-events-none fixed bottom-5 right-5 z-50 flex w-[min(92vw,22rem)] flex-col gap-2">
-      <TransitionGroup name="toast">
-        <div
-            v-for="item in homeStore.notifications"
-            :key="item.id"
-            class="panel chrome flex items-center gap-2.5 px-3.5 py-2.5 text-[0.8125rem] text-ink shadow-[0_18px_40px_rgba(0,0,0,0.5)]"
-        >
-          <span :class="item.type === 'error' ? 'dot dot-fault' : 'dot dot-live'"></span>
-          <span class="min-w-0 flex-1">{{ item.message }}</span>
-        </div>
-      </TransitionGroup>
-    </div>
   </div>
 </template>
 
-<style scoped>
-.toast-enter-active,
-.toast-leave-active {
-  transition: transform 340ms var(--ease), opacity 260ms var(--ease);
-}
-
-/* In from the right, out to the right — the same path, reversed. */
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translateX(14px);
-}
-
-.toast-move {
-  transition: transform 340ms var(--ease);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .toast-enter-active,
-  .toast-leave-active,
-  .toast-move {
-    transition: opacity 180ms linear;
-  }
-
-  .toast-enter-from,
-  .toast-leave-to {
-    transform: none;
-  }
-}
-</style>

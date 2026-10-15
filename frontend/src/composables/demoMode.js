@@ -133,20 +133,6 @@ function library(url) {
 	};
 }
 
-const DEVICES = [
-	{id: 'd1', name: 'Desk lamp', room: 'Study', type: 'light', state: true, canToggle: true, supportsBrightness: true, brightness: 68, supportsColor: true, color: '#ffd9a0'},
-	{id: 'd2', name: 'Ceiling', room: 'Living room', type: 'light', state: true, canToggle: true, supportsBrightness: true, brightness: 40, supportsColor: true, color: '#fff1dd'},
-	{id: 'd3', name: 'Shelf strip', room: 'Living room', type: 'light', state: false, canToggle: true, supportsBrightness: true, brightness: 0, supportsColor: true, color: '#9ec7ff'},
-	{id: 'd4', name: 'Hallway', room: 'Hallway', type: 'light', state: false, canToggle: true, supportsBrightness: true, brightness: 0},
-	{id: 'd5', name: 'Amplifier', room: 'Living room', type: 'switch', state: true, canToggle: true},
-	{id: 'd6', name: 'Monitor riser', room: 'Study', type: 'switch', state: true, canToggle: true},
-	{id: 'd7', name: 'Bedroom fan', room: 'Bedroom', type: 'fan', state: false, canToggle: true},
-	{id: 'd8', name: 'Thermostat', room: 'Hallway', type: 'thermostat', state: true, canToggle: false, value: '19.5°'},
-	{id: 'd9', name: 'Front door', room: 'Hallway', type: 'lock', state: true, canToggle: false, value: 'Locked'},
-	{id: 'd10', name: 'Study sensor', room: 'Study', type: 'sensor', state: true, canToggle: false, value: '21.2°'},
-	{id: 'd11', name: 'Balcony', room: 'Living room', type: 'light', state: false, canToggle: true, supportsBrightness: true, brightness: 0},
-];
-
 const TORRENTS = [
 	{id: 't1', name: 'Paper.Cities.2025.2160p.WEB-DL.DV.HDR', base: 62, speed: 11.4e6, state: 'downloading'},
 	{id: 't2', name: 'Low.Tide.S02E05.1080p.WEB-DL', base: 31, speed: 4.2e6, state: 'downloading'},
@@ -226,13 +212,10 @@ function match(url = '') {
 	const path = url.split('?')[0];
 	if (path === '/weather') return WEATHER.Amsterdam;
 	if (path === '/weather/current') return WEATHER.local;
-	if (path === '/home/devices') return DEVICES;
 	if (path === '/home/services-status') return servicesStatus();
 	if (path === '/jellyfin/suggested') return url.includes('type=shows') ? SHOWS : SUGGESTED;
 	if (path === '/jellyfin/recent') return RECENT;
 	if (path === '/jellyfin/library') return library(url);
-	if (path === '/home/toggle' || path === '/home/brightness') return {ok: true};
-	if (path === '/home/color') return {ok: true};
 	return null;
 }
 
