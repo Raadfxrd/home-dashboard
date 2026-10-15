@@ -9,51 +9,65 @@ const route = useRoute();
 
 const items = ref([]);
 const isLoading = ref(false);
-const isLoadingMore = ref(false);
 const error = ref(null);
-const hasMore = ref(false);
-const total = ref(0);
 const sortBy = ref('title');
 const sortOrder = ref('asc');
 
 const kind = computed(() => (route.params.kind === 'shows' ? 'shows' : 'movies'));
 
-async function fetchPage(startIndex = 0, append = false) {
-  if (append) {
-    isLoadingMore.value = true;
-  } else {
-    isLoading.value = true;
-    error.value = null;
+/* The whole library loads at once and is sorted here, so changing the sort
+   is instant and the order never shifts as more items arrive. */
+const cache = new Map();
+
+async function load() {
+  const wanted = kind.value;
+  if (cache.has(wanted)) {
+    items.value = cache.get(wanted);
+    return;
   }
-
+  isLoading.value = true;
+  error.value = null;
   try {
-    const response = await get('/jellyfin/library', {
-      type: kind.value,
-      startIndex,
-      limit: 48,
-      sortBy: sortBy.value,
-      sortOrder: sortOrder.value,
-    });
-
-    const nextItems = response?.items || [];
-    items.value = append ? [...items.value, ...nextItems] : nextItems;
-    hasMore.value = Boolean(response?.hasMore);
-    total.value = Number(response?.total || items.value.length);
+    const response = await get('/jellyfin/library', {type: wanted, all: 1});
+    const list = response?.items || [];
+    cache.set(wanted, list);
+    if (kind.value === wanted) items.value = list;
   } catch (err) {
     error.value = err.response?.data?.error || 'Could not reach the library. Check that Jellyfin is running.';
   } finally {
     isLoading.value = false;
-    isLoadingMore.value = false;
   }
 }
 
-function loadMore() {
-  if (isLoadingMore.value || !hasMore.value) return;
-  fetchPage(items.value.length, true);
+const collator = new Intl.Collator('en', {numeric: true, sensitivity: 'base'});
+const byTitle = (a, b) => collator.compare(a.sortName || a.title || '', b.sortName || b.title || '') || String(a.id).localeCompare(String(b.id));
+
+const sorted = computed(() => {
+  const list = items.value.slice();
+  const dir = sortOrder.value === 'desc' ? -1 : 1;
+  if (sortBy.value === 'year') {
+    list.sort((a, b) => ((a.year ?? 0) - (b.year ?? 0)) * dir || byTitle(a, b));
+  } else if (sortBy.value === 'added') {
+    list.sort((a, b) => (Date.parse(a.added || 0) - Date.parse(b.added || 0)) * dir || byTitle(a, b));
+  } else {
+    list.sort((a, b) => byTitle(a, b) * dir);
+  }
+  return list;
+});
+
+/* "A–Z" only makes sense for titles; years and dates read as old/new. */
+const orderLabels = computed(() =>
+  sortBy.value === 'title' ? {asc: 'A–Z', desc: 'Z–A'} : {asc: 'Oldest first', desc: 'Newest first'}
+);
+
+function onSortByChange() {
+  // Recently added is almost always wanted newest first.
+  if (sortBy.value === 'added') sortOrder.value = 'desc';
+  if (sortBy.value === 'title') sortOrder.value = 'asc';
 }
 
-watch(() => route.params.kind, () => fetchPage(0, false));
-onMounted(() => fetchPage(0, false));
+watch(() => route.params.kind, load);
+onMounted(load);
 </script>
 
 <template>
@@ -64,7 +78,7 @@ onMounted(() => fetchPage(0, false));
           <AppIcon :size="15" name="back"/>
           Home
         </RouterLink>
-        <span class="t-note t-read">{{ total || items.length }} titles</span>
+        <span class="t-note t-read">{{ items.length }} titles</span>
       </div>
     </header>
 
@@ -93,7 +107,7 @@ onMounted(() => fetchPage(0, false));
               id="sort-by"
               v-model="sortBy"
               class="panel press cursor-pointer px-3 py-2 text-[0.8125rem] text-dim outline-none hover:text-ink"
-              @change="fetchPage(0, false)"
+              @change="onSortByChange"
           >
             <option value="title">Title</option>
             <option value="year">Year</option>
@@ -105,10 +119,9 @@ onMounted(() => fetchPage(0, false));
               id="sort-order"
               v-model="sortOrder"
               class="panel press cursor-pointer px-3 py-2 text-[0.8125rem] text-dim outline-none hover:text-ink"
-              @change="fetchPage(0, false)"
           >
-            <option value="asc">A–Z</option>
-            <option value="desc">Z–A</option>
+            <option value="asc">{{ orderLabels.asc }}</option>
+            <option value="desc">{{ orderLabels.desc }}</option>
           </select>
         </div>
       </div>
@@ -129,19 +142,9 @@ onMounted(() => fetchPage(0, false));
       </p>
 
       <div v-else class="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-7">
-        <MediaCard v-for="item in items" :key="item.id" :item="item"/>
+        <MediaCard v-for="item in sorted" :key="item.id" :item="item"/>
       </div>
 
-      <div v-if="hasMore" class="mt-10 flex justify-center">
-        <button
-            :disabled="isLoadingMore"
-            class="panel press px-5 py-2.5 text-[0.875rem] text-dim hover:text-ink disabled:opacity-50"
-            type="button"
-            @click="loadMore"
-        >
-          {{ isLoadingMore ? 'Loading' : 'Show more' }}
-        </button>
-      </div>
     </main>
   </div>
 </template>

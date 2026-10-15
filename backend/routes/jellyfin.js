@@ -574,11 +574,52 @@ router.get('/library', async (req, res) => {
 	const sortOrder = sortOrderParam === 'desc' ? 'Descending' : 'Ascending';
 	const startIndex = Math.max(0, parseInt(req.query.startIndex || '0', 10) || 0);
 	const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '48', 10) || 48));
+	const wantAll = req.query.all === '1' || req.query.all === 'true';
 
 	try {
 		const userId = await getResolvedUserId();
 		if (!userId) {
 			return res.status(502).json({error: 'Failed to resolve Jellyfin user ID'});
+		}
+
+		if (wantAll) {
+			/* The whole library in one answer, read in big pages with a stable
+			   order (name, then id) so nothing is skipped or repeated. Sorting
+			   for display happens in the browser. */
+			const all = [];
+			const PAGE = 500;
+			for (let start = 0; ; start += PAGE) {
+				const page = await axios.get(`${JELLYFIN_URL}/Items`, {
+					headers: jellyfinHeaders(),
+					params: {
+						userId,
+						Recursive: true,
+						StartIndex: start,
+						Limit: PAGE,
+						SortBy: 'SortName,Id',
+						SortOrder: 'Ascending',
+						IncludeItemTypes: includeItemTypes,
+						ExcludeItemTypes: isShowQuery ? undefined : 'BoxSet,CollectionFolder',
+						Filters: isShowQuery ? undefined : 'IsNotFolder',
+						Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,DateCreated,SortName',
+						ImageTypeLimit: 1,
+						EnableImages: true,
+					},
+				});
+				const batch = page.data?.Items || [];
+				all.push(...batch);
+				const reported = page.data?.TotalRecordCount;
+				if (batch.length < PAGE || (Number.isFinite(reported) && all.length >= reported)) break;
+			}
+			const seen = new Set();
+			const items = all
+				.filter((item) => (seen.has(item.Id) ? false : seen.add(item.Id)))
+				.map((item) => ({
+					...mapItem(item, 0),
+					sortName: item.SortName || item.Name || '',
+					added: item.DateCreated || null,
+				}));
+			return res.json({items, total: items.length, startIndex: 0, limit: items.length, hasMore: false});
 		}
 
 		const response = await axios.get(`${JELLYFIN_URL}/Items`, {

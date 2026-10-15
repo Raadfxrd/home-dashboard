@@ -5,6 +5,7 @@ import {get} from '../composables/useApi.js';
 export const useWeatherStore = defineStore('weather', () => {
 	const amsterdamWeather = ref(null);
 	const locationWeather = ref(null);
+	const outlook = ref(null);
 	const isLoading = ref(false);
 	const error = ref(null);
 
@@ -28,5 +29,24 @@ export const useWeatherStore = defineStore('weather', () => {
 		}
 	}
 
-	return {amsterdamWeather, locationWeather, isLoading, error, fetchAmsterdamWeather, fetchLocationWeather};
+	/* The next 12 hours and the rain over the next 2. Failing quietly is
+	   fine here: the current reading still shows without it. */
+	async function fetchOutlook(city = 'Amsterdam') {
+		try {
+			outlook.value = await get('/weather/outlook', {city});
+		} catch {
+			outlook.value = null;
+		}
+	}
+
+	return {
+		amsterdamWeather,
+		locationWeather,
+		outlook,
+		isLoading,
+		error,
+		fetchAmsterdamWeather,
+		fetchLocationWeather,
+		fetchOutlook,
+	};
 });

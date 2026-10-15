@@ -374,7 +374,11 @@ async function fetchSnmpNasMetrics() {
 	});
 
 	try {
-		const [cpuIdleBind, memoryBinds, hrProcessorLoads, storageRows, ifNameRows, ifHcInRows, ifHcOutRows, ifInRows, ifOutRows] = await Promise.all([
+		const [systemBinds, cpuIdleBind, memoryBinds, hrProcessorLoads, storageRows, ifNameRows, ifHcInRows, ifHcOutRows, ifInRows, ifOutRows] = await Promise.all([
+			snmpGetAsync(session, [
+				'1.3.6.1.2.1.1.5.0',    // sysName
+				'1.3.6.1.2.1.25.1.1.0', // hrSystemUptime (hundredths of a second)
+			]).catch(() => null),
 			snmpGetAsync(session, ['1.3.6.1.4.1.2021.11.11.0']).catch(() => null),
 			snmpGetAsync(session, [
 				'1.3.6.1.4.1.2021.4.5.0',  // memTotalReal (kB)
@@ -390,6 +394,12 @@ async function fetchSnmpNasMetrics() {
 			snmpSubtreeAsync(session, '1.3.6.1.2.1.2.2.1.10').catch(() => []),
 			snmpSubtreeAsync(session, '1.3.6.1.2.1.2.2.1.16').catch(() => []),
 		]);
+
+		const nothingAnswered = !systemBinds && !cpuIdleBind && !memoryBinds
+			&& hrProcessorLoads.length === 0 && storageRows.length === 0 && ifNameRows.length === 0;
+		if (nothingAnswered) {
+			throw new Error(`No answer from SNMP on ${NAS_SNMP_HOST}:${NAS_SNMP_PORT}`);
+		}
 
 		const cpuLoadValues = hrProcessorLoads
 			.map((item) => toNumber(item.value, NaN))
@@ -502,6 +512,11 @@ async function fetchSnmpNasMetrics() {
 			online: true,
 			source: 'snmp',
 			label: NAS_USAGE_LABEL,
+			hostName: String(getSnmpValueByOid(systemBinds || [], '1.3.6.1.2.1.1.5.0') || '').trim() || null,
+			uptimeSeconds: (() => {
+				const ticks = toNumber(getSnmpValueByOid(systemBinds || [], '1.3.6.1.2.1.25.1.1.0'), NaN);
+				return Number.isFinite(ticks) ? Math.round(ticks / 100) : null;
+			})(),
 			cpu: {usagePercent: cpuUsagePercent},
 			memory,
 			disk,
@@ -1070,6 +1085,103 @@ async function fetchProwlarrDetails() {
 		indexers: buildSummary(indexers, true, prowlarr.online),
 	};
 }
+
+/* ---------- System history ----------
+   The NAS is sampled here on a timer, independent of who is looking, so the
+   graphs are already full when the page opens and look the same on every
+   device. Kept in memory: the last hour at full resolution and the last day
+   in 5-minute buckets. A restart starts the history again. */
+
+const HISTORY_SAMPLE_MS = Math.max(5000, Number(process.env.NAS_HISTORY_SAMPLE_MS || 10000));
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const BUCKET_MS = 5 * 60 * 1000;
+
+const systemHistory = {
+	recent: [], // {t, cpu, rx, tx}
+	buckets: [], // {t, cpu, cpuMax, rx, tx}
+	open: null, // the 5-minute bucket being filled
+};
+
+function addHistorySample(metrics) {
+	if (!metrics?.online) return;
+	const t = Date.now();
+	if (!Number.isFinite(metrics.cpu?.usagePercent) && !Number.isFinite(metrics.network?.totalRxRateBytesPerSecond)) return;
+	const sample = {
+		t,
+		cpu: Number.isFinite(metrics.cpu?.usagePercent) ? metrics.cpu.usagePercent : null,
+		rx: Number.isFinite(metrics.network?.totalRxRateBytesPerSecond) ? metrics.network.totalRxRateBytesPerSecond : null,
+		tx: Number.isFinite(metrics.network?.totalTxRateBytesPerSecond) ? metrics.network.totalTxRateBytesPerSecond : null,
+	};
+
+	systemHistory.recent.push(sample);
+	while (systemHistory.recent.length && systemHistory.recent[0].t < t - HOUR_MS) systemHistory.recent.shift();
+
+	const bucketStart = Math.floor(t / BUCKET_MS) * BUCKET_MS;
+	if (!systemHistory.open || systemHistory.open.t !== bucketStart) {
+		if (systemHistory.open) systemHistory.buckets.push(closeBucket(systemHistory.open));
+		systemHistory.open = {t: bucketStart, cpu: [], rx: [], tx: []};
+	}
+	if (sample.cpu != null) systemHistory.open.cpu.push(sample.cpu);
+	if (sample.rx != null) systemHistory.open.rx.push(sample.rx);
+	if (sample.tx != null) systemHistory.open.tx.push(sample.tx);
+	while (systemHistory.buckets.length && systemHistory.buckets[0].t < t - DAY_MS) systemHistory.buckets.shift();
+}
+
+function average(values) {
+	return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
+}
+
+function closeBucket(bucket) {
+	return {
+		t: bucket.t,
+		cpu: average(bucket.cpu) == null ? null : Math.round(average(bucket.cpu)),
+		cpuMax: bucket.cpu.length ? Math.max(...bucket.cpu) : null,
+		rx: average(bucket.rx) == null ? null : Math.round(average(bucket.rx)),
+		tx: average(bucket.tx) == null ? null : Math.round(average(bucket.tx)),
+	};
+}
+
+function summarize(points, peakKey = 'cpu') {
+	const cpu = points.map((p) => p.cpu).filter((v) => v != null);
+	let peak = null;
+	for (const p of points) {
+		const value = p[peakKey] ?? p.cpu;
+		if (value != null && (!peak || value > peak.value)) peak = {value, t: p.t};
+	}
+	const rx = points.map((p) => p.rx).filter((v) => v != null);
+	const tx = points.map((p) => p.tx).filter((v) => v != null);
+	return {
+		cpuAverage: cpu.length ? Math.round(average(cpu)) : null,
+		cpuPeak: peak ? Math.round(peak.value) : null,
+		cpuPeakAt: peak ? peak.t : null,
+		rxPeak: rx.length ? Math.max(...rx) : null,
+		txPeak: tx.length ? Math.max(...tx) : null,
+	};
+}
+
+async function sampleSystem() {
+	try {
+		addHistorySample(await probeNasMetrics());
+	} catch (err) {
+		logNasMetrics('history.sample_error', {message: err.message}, 'error');
+	}
+}
+
+if ((NAS_METRICS_MODE || (NAS_SNMP_HOST ? 'snmp' : 'none')) === 'snmp') {
+	sampleSystem();
+	setInterval(sampleSystem, HISTORY_SAMPLE_MS).unref();
+}
+
+router.get('/system-history', (req, res) => {
+	const range = req.query.range === '24h' ? '24h' : '1h';
+	if (range === '1h') {
+		const points = systemHistory.recent.slice();
+		return res.json({range, stepSeconds: HISTORY_SAMPLE_MS / 1000, from: Date.now() - HOUR_MS, to: Date.now(), points, stats: summarize(points)});
+	}
+	const points = systemHistory.buckets.concat(systemHistory.open ? [closeBucket(systemHistory.open)] : []);
+	return res.json({range, stepSeconds: BUCKET_MS / 1000, from: Date.now() - DAY_MS, to: Date.now(), points, stats: summarize(points, 'cpuMax')});
+});
 
 router.get('/services-status', async (_req, res) => {
 	try {

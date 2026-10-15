@@ -20,24 +20,29 @@ const {coords, isLoading: geoLoading} = useGeolocation();
 
 const POLL_MS = Math.max(1500, Math.min(60000, Number(import.meta.env.VITE_DASHBOARD_POLL_INTERVAL_MS || 5000)));
 const JELLYFIN_REFRESH_MS = 30 * 60 * 1000;
-const HISTORY_LIMIT = 48;
+const WEATHER_REFRESH_MS = 5 * 60 * 1000;
 
 const clock = ref('');
 const today = ref('');
 const jellyfinKey = ref(0);
 
-const cpuHistory = ref([]);
-const ramHistory = ref([]);
-const rxHistory = ref([]);
-const txHistory = ref([]);
 
 let clockTimer = null;
 let statusTimer = null;
 let jellyfinTimer = null;
+let weatherTimer = null;
+let historyTimer = null;
 
-function pushHistory(target, value) {
-  if (!Number.isFinite(value)) return;
-  target.value = [...target.value, value].slice(-HISTORY_LIMIT);
+/* The 1-hour view gains a sample every 10 s; the 24-hour one every 5 min. */
+function pollHistory() {
+  clearInterval(historyTimer);
+  homeStore.fetchSystemHistory();
+  historyTimer = setInterval(() => homeStore.fetchSystemHistory(), homeStore.historyRange === '24h' ? 60000 : 15000);
+}
+
+function setRange(range) {
+  homeStore.historyRange = range;
+  pollHistory();
 }
 
 function updateClock() {
@@ -85,38 +90,31 @@ watch(coords, (val) => {
   if (val) weatherStore.fetchLocationWeather(val.lat, val.lon);
 });
 
-watch(
-    () => ({
-      cpu: nas.value.cpu?.usagePercent,
-      ram: nas.value.memory?.usedPercent,
-      rx: nas.value.network?.totalRxRateBytesPerSecond,
-      tx: nas.value.network?.totalTxRateBytesPerSecond,
-    }),
-    (sample) => {
-      pushHistory(cpuHistory, Number(sample.cpu));
-      pushHistory(ramHistory, Number(sample.ram));
-      pushHistory(rxHistory, Number(sample.rx));
-      pushHistory(txHistory, Number(sample.tx));
-    },
-    {deep: true}
-);
 
 onMounted(() => {
   updateClock();
   clockTimer = setInterval(updateClock, 1000);
 
   weatherStore.fetchAmsterdamWeather();
+  weatherStore.fetchOutlook();
   homeStore.fetchServiceStatus();
+  pollHistory();
   refreshJellyfin();
 
   statusTimer = setInterval(() => homeStore.fetchServiceStatus(), POLL_MS);
   jellyfinTimer = setInterval(refreshJellyfin, JELLYFIN_REFRESH_MS);
+  weatherTimer = setInterval(() => {
+    weatherStore.fetchAmsterdamWeather();
+    weatherStore.fetchOutlook();
+  }, WEATHER_REFRESH_MS);
 });
 
 onUnmounted(() => {
   clearInterval(clockTimer);
   clearInterval(statusTimer);
   clearInterval(jellyfinTimer);
+  clearInterval(weatherTimer);
+  clearInterval(historyTimer);
 });
 </script>
 
@@ -143,6 +141,7 @@ onUnmounted(() => {
           :date="today"
           :here="weatherStore.amsterdamWeather"
           :away="weatherStore.locationWeather"
+          :outlook="weatherStore.outlook"
           :is-loading="weatherStore.isLoading && !weatherStore.amsterdamWeather"
       />
 
@@ -153,10 +152,9 @@ onUnmounted(() => {
           <SystemReadout
               :metrics="nas"
               :fallback="homeStore.serviceStatus.nasUsage"
-              :cpu-history="cpuHistory"
-              :ram-history="ramHistory"
-              :rx-history="rxHistory"
-              :tx-history="txHistory"
+              :history="homeStore.systemHistory"
+              :range="homeStore.historyRange"
+              @update:range="setRange"
           />
         </div>
 

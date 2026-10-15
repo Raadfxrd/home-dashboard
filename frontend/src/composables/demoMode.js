@@ -114,6 +114,11 @@ const LIBRARY = [...SUGGESTED, ...SHOWS, ...RECENT, ...makeMedia([
 
 function library(url) {
 	const params = new URLSearchParams(url.split('?')[1] || '');
+	if (params.get('all')) {
+		const now = Date.now();
+		const items = LIBRARY.map((item, i) => ({...item, sortName: item.title.replace(/^The /, ''), added: new Date(now - i * 36e5 * 7).toISOString()}));
+		return {items, total: items.length, hasMore: false};
+	}
 	const start = Number(params.get('startIndex') || 0);
 	const limit = Number(params.get('limit') || 48);
 	const sortBy = params.get('sortBy') || 'title';
@@ -185,7 +190,7 @@ function servicesStatus() {
 			],
 		},
 		nasMetrics: {
-			configured: true, online: true, source: 'snmp', label: 'ASUSTOR',
+			configured: true, online: true, source: 'snmp', label: 'ASUSTOR', hostName: 'Steven', uptimeSeconds: 12 * 86400 + 5 * 3600,
 			cpu: {usagePercent: Math.round(wander(2, 18, 12, 20))},
 			memory: {totalBytes: totalRam, usedBytes: Math.round(usedRam), freeBytes: Math.round(totalRam - usedRam), usedPercent: Math.round((usedRam / totalRam) * 100)},
 			disk: {totalBytes: totalDisk, usedBytes: usedDisk, freeBytes: totalDisk - usedDisk, usedPercent: 71, volumes: []},
@@ -205,16 +210,101 @@ function servicesStatus() {
 	};
 }
 
-const WEATHER = {
-	Amsterdam: {city: 'Amsterdam', temperature: 12, feelsLike: 10, condition: 'light rain', icon: '10d', humidity: 84, windSpeed: 19},
-	local: {city: 'Rotterdam', temperature: 13, feelsLike: 11, condition: 'broken clouds', icon: '04d', humidity: 76, windSpeed: 15},
+/* ?weather=rain|heavy|drizzle|storm|snow|sleet|fog|clouds|clear previews each
+   backdrop in demo mode. */
+const WEATHER_PRESETS = {
+	clear: {conditionId: 800, icon: '01n', condition: 'clear sky'},
+	clouds: {conditionId: 804, icon: '04n', condition: 'overcast clouds'},
+	drizzle: {conditionId: 301, icon: '09n', condition: 'drizzle'},
+	rain: {conditionId: 500, icon: '10n', condition: 'light rain'},
+	heavy: {conditionId: 502, icon: '10n', condition: 'heavy rain'},
+	storm: {conditionId: 211, icon: '11n', condition: 'thunderstorm'},
+	snow: {conditionId: 601, icon: '13n', condition: 'snow'},
+	sleet: {conditionId: 611, icon: '13n', condition: 'sleet'},
+	fog: {conditionId: 741, icon: '50n', condition: 'fog'},
 };
+const presetName = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('weather') : null;
+const preset = WEATHER_PRESETS[presetName] || WEATHER_PRESETS.rain;
+
+const WEATHER = {
+	Amsterdam: {
+		city: 'Amsterdam', temperature: 12, feelsLike: 10, humidity: 84, windSpeed: 19, windDirection: 'SW',
+		sunrise: '08:04', sunset: '18:41', lat: 52.37, lon: 4.89, ...preset,
+	},
+	local: {city: 'Rotterdam', temperature: 13, feelsLike: 11, condition: 'broken clouds', icon: '04d', conditionId: 803, humidity: 76, windSpeed: 15},
+};
+
+function demoOutlook() {
+	const raining = ['rain', 'heavy', 'drizzle', 'storm', null, undefined].includes(presetName);
+	const shape = presetName === 'heavy' || presetName === 'storm'
+		? [2.4, 3.1, 4.2, 5, 3.8, 2.6, 1.8, 1.2, 0.8, 0.5, 0.3, 0.2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+		: [0, 0, 0, 0, 0, 0.1, 0.3, 0.6, 0.9, 1.2, 1.4, 1.1, 0.8, 0.6, 0.4, 0.3, 0.2, 0.1, 0, 0, 0, 0, 0, 0];
+	const now = new Date();
+	const base = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 5) * 5;
+	const slots = shape.map((mm, i) => {
+		const m = (base + i * 5) % 1440;
+		return {time: `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`, mm: raining ? mm : 0};
+	});
+	const firstWet = slots.findIndex((s) => s.mm >= 0.1);
+	const lastWet = slots.length - 1 - [...slots].reverse().findIndex((s) => s.mm >= 0.1);
+	const summary = firstWet === -1
+		? 'Dry for the next two hours'
+		: firstWet === 0
+			? `Heavy rain until about ${slots[lastWet + 1].time}`
+			: `Light rain from about ${slots[firstWet].time}, dry again by ${slots[lastWet + 1].time}`;
+	const h = (n) => `${String((Math.floor(base / 60) + 3 * n) % 24).padStart(2, '0')}:00`;
+	return {
+		rain: {available: true, slots, summary},
+		hours: [
+			{time: h(1), temperature: 11, icon: '10n', rainChance: 70},
+			{time: h(2), temperature: 10, icon: '04n', rainChance: 20},
+			{time: h(3), temperature: 11, icon: '04d', rainChance: 10},
+			{time: h(4), temperature: 14, icon: '02d', rainChance: 0},
+			{time: h(5), temperature: 15, icon: '01d', rainChance: 0},
+		],
+	};
+}
+
+/* A believable hour or day of NAS history: a quiet baseline, one busy spell,
+   and network bursts while downloads run. Deterministic per range. */
+function systemHistory(range) {
+	const day = range === '24h';
+	const step = day ? 300000 : 10000;
+	const to = Date.now();
+	const from = to - (day ? 86400000 : 3600000);
+	let seed = day ? 7 : 3;
+	const rnd = () => {
+		seed = (seed * 16807) % 2147483647;
+		return seed / 2147483647;
+	};
+	const points = [];
+	let cpu = 16;
+	for (let t = from + step; t <= to; t += step) {
+		const f = (t - from) / (to - from);
+		cpu += (16 - cpu) * 0.15 + (rnd() - 0.5) * 8;
+		const spike = 58 * Math.exp(-(((f - 0.6) / 0.025) ** 2));
+		const rx = (14 + 9 * Math.sin(f * 9) + 18 * Math.exp(-(((f - 0.33) / 0.06) ** 2)) + (rnd() - 0.5) * 6) * 1e6;
+		const tx = (2.4 + 1.2 * Math.sin(f * 5 + 1) + 5 * Math.exp(-(((f - 0.5) / 0.03) ** 2)) + (rnd() - 0.5)) * 1e6;
+		points.push({t, cpu: Math.max(2, Math.min(100, Math.round(cpu + spike))), rx: Math.max(0, Math.round(rx)), tx: Math.max(0, Math.round(tx))});
+	}
+	const peak = points.reduce((a, p) => (p.cpu > a.cpu ? p : a), points[0]);
+	return {
+		range: day ? '24h' : '1h', stepSeconds: step / 1000, from, to, points,
+		stats: {
+			cpuAverage: Math.round(points.reduce((a, p) => a + p.cpu, 0) / points.length),
+			cpuPeak: peak.cpu, cpuPeakAt: peak.t,
+			rxPeak: Math.max(...points.map((p) => p.rx)), txPeak: Math.max(...points.map((p) => p.tx)),
+		},
+	};
+}
 
 function match(url = '') {
 	const path = url.split('?')[0];
 	if (path === '/weather') return WEATHER.Amsterdam;
 	if (path === '/weather/current') return WEATHER.local;
+	if (path === '/weather/outlook') return demoOutlook();
 	if (path === '/home/services-status') return servicesStatus();
+	if (path === '/home/system-history') return systemHistory(url.includes('range=24h') ? '24h' : '1h');
 	if (path === '/jellyfin/suggested') return url.includes('type=shows') ? SHOWS : SUGGESTED;
 	if (path === '/jellyfin/recent') return RECENT;
 	if (path === '/jellyfin/library') return library(url);

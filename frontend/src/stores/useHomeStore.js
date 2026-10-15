@@ -4,6 +4,8 @@ import {get} from '../composables/useApi.js';
 
 export const useHomeStore = defineStore('home', () => {
 	const serviceStatusRequest = ref(null);
+	const systemHistory = ref(null);
+	const historyRange = ref('1h');
 	const serviceStatus = ref({
 		prowlarr: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
 		indexer: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
@@ -85,7 +87,21 @@ export const useHomeStore = defineStore('home', () => {
 		return serviceStatusRequest.value;
 	}
 
+	async function fetchSystemHistory(range = historyRange.value) {
+		historyRange.value = range;
+		try {
+			const payload = await get('/home/system-history', {range});
+			// Ignore a late answer for a range the user has already left.
+			if (payload?.range === historyRange.value) systemHistory.value = payload;
+		} catch {
+			// Keep the last history on screen; the next poll tries again.
+		}
+	}
+
 	return {
+		systemHistory,
+		historyRange,
+		fetchSystemHistory,
 		serviceStatus,
 		serviceStatusRequest,
 		fetchServiceStatus,
