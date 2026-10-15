@@ -152,9 +152,10 @@ async function mapWithConcurrency(items = [], limit = 3, mapper) {
 }
 
 async function fetchLatestEpisodeForSeries(userId, seriesId) {
-	const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+	const response = await axios.get(`${JELLYFIN_URL}/Items`, {
 		headers: jellyfinHeaders(),
 		params: {
+			userId,
 			ParentId: seriesId,
 			Recursive: true,
 			IncludeItemTypes: 'Episode',
@@ -298,9 +299,10 @@ router.get('/suggested', async (req, res) => {
 		}
 
 		const [historyResponse, libraryResponse, tmdbTitles] = await Promise.all([
-			axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			axios.get(`${JELLYFIN_URL}/Items`, {
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Recursive: true,
 					Limit: 60,
 					IncludeItemTypes: historyTypes,
@@ -312,9 +314,10 @@ router.get('/suggested', async (req, res) => {
 					EnableImages: true,
 				},
 			}),
-			axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			axios.get(`${JELLYFIN_URL}/Items`, {
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Recursive: true,
 					Limit: 800,
 					IncludeItemTypes: libraryTypes,
@@ -423,10 +426,11 @@ router.get('/continue', async (_req, res) => {
 		}
 
 		const response = await axios.get(
-			`${JELLYFIN_URL}/Users/${userId}/Items/Resume`,
+			`${JELLYFIN_URL}/Items/Resume`,
 			{
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Limit: 12,
 					Fields: 'PrimaryImageAspectRatio,UserData,ProviderIds',
 					Recursive: true,
@@ -476,10 +480,11 @@ router.get('/recent', async (_req, res) => {
 		}
 
 		const response = await axios.get(
-			`${JELLYFIN_URL}/Users/${userId}/Items/Latest`,
+			`${JELLYFIN_URL}/Items/Latest`,
 			{
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Limit: 16,
 					Fields: 'PrimaryImageAspectRatio,ProviderIds,SeriesId,SeriesName,ParentId,ParentIndexNumber,IndexNumber',
 					Recursive: true,
@@ -494,9 +499,10 @@ router.get('/recent', async (_req, res) => {
 
 		if (!items.length) {
 			logJellyfin('recent.latest_empty_fallback_start');
-			const fallbackResponse = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			const fallbackResponse = await axios.get(`${JELLYFIN_URL}/Items`, {
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Limit: 16,
 					Recursive: true,
 					SortBy: 'DateCreated',
@@ -575,9 +581,10 @@ router.get('/library', async (req, res) => {
 			return res.status(502).json({error: 'Failed to resolve Jellyfin user ID'});
 		}
 
-		const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+		const response = await axios.get(`${JELLYFIN_URL}/Items`, {
 			headers: jellyfinHeaders(),
 			params: {
+				userId,
 				Recursive: true,
 				StartIndex: startIndex,
 				Limit: limit,
