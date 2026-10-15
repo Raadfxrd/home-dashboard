@@ -10,6 +10,9 @@ const OWM = 'https://api.openweathermap.org/data/2.5';
 // Buienradar's 2-hour rain outlook for a point: "value|HH:MM" lines, one
 // every 5 minutes. Free, no key, and very good for the Netherlands.
 const BUIENRADAR_RAINTEXT = process.env.BUIENRADAR_RAINTEXT_URL || 'https://gpsgadget.buienradar.nl/data/raintext';
+// The same data stretched to 3 hours, as JSON with mm/h per 5-minute step.
+// Tried first; the 2-hour text feed is the fallback.
+const BUIENRADAR_3H = process.env.BUIENRADAR_3H_URL || 'https://graphdata.buienradar.nl/2.0/forecast/geo/Rain3Hour';
 const HTTP_TIMEOUT_MS = 8000;
 
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -138,16 +141,35 @@ function describeRain(slots) {
     : `${strength} from about ${slots[start].time}, dry again by ${slots[end].time}`;
 }
 
+/* Rain3Hour: {forecasts: [{datetime: "2026-10-16T01:45:00", precipitation: 0.4}, …]}
+   with datetime already in Dutch local time. */
+function parseRain3Hour(data) {
+  return (data?.forecasts || [])
+    .map((f) => {
+      const time = String(f.datetime || '').slice(11, 16);
+      const mm = Number(f.precipitation);
+      if (!/^\d{2}:\d{2}$/.test(time) || !Number.isFinite(mm)) return null;
+      return { time, mm: Math.round(Math.max(0, mm) * 100) / 100 };
+    })
+    .filter(Boolean);
+}
+
 async function fetchRain(lat, lon) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { available: false, slots: [], summary: null };
   return cached(`rain_${lat.toFixed(2)}_${lon.toFixed(2)}`, 300, async () => {
-    const response = await axios.get(BUIENRADAR_RAINTEXT, {
-      params: { lat: lat.toFixed(2), lon: lon.toFixed(2) },
-      timeout: HTTP_TIMEOUT_MS,
-      responseType: 'text',
-    });
-    const slots = parseRainText(response.data).slice(0, 24);
-    return { available: slots.length > 0, slots, summary: describeRain(slots) };
+    const params = { lat: lat.toFixed(2), lon: lon.toFixed(2) };
+    let slots = [];
+    try {
+      const response = await axios.get(BUIENRADAR_3H, { params, timeout: HTTP_TIMEOUT_MS });
+      slots = parseRain3Hour(response.data).slice(0, 36);
+    } catch (err) {
+      console.error('Weather rain (3h) error, using the 2h feed:', err.message);
+    }
+    if (slots.length < 24) {
+      const response = await axios.get(BUIENRADAR_RAINTEXT, { params, timeout: HTTP_TIMEOUT_MS, responseType: 'text' });
+      slots = parseRainText(response.data).slice(0, 24);
+    }
+    return { available: slots.length > 0, slots, summary: describeRain(slots.slice(0, 24)) };
   });
 }
 
@@ -211,6 +233,6 @@ router.get('/outlook', async (req, res) => {
   res.json({ hours, rain });
 });
 
-router._test = { parseRainText, describeRain };
+router._test = { parseRainText, parseRain3Hour, describeRain };
 
 module.exports = router;

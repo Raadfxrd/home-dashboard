@@ -1,8 +1,10 @@
 <script setup>
-import {computed} from 'vue';
+import {computed, ref, watch} from 'vue';
 import AppIcon from './AppIcon.vue';
 import RollingNumber from './RollingNumber.vue';
 import WeatherBackdrop from './WeatherBackdrop.vue';
+import SegmentedControl from './SegmentedControl.vue';
+import {describeRain} from '../composables/rainSummary.js';
 
 const props = defineProps({
   clock: {type: String, default: ''},
@@ -42,10 +44,46 @@ const meta = computed(() => {
 const rain = computed(() => props.outlook?.rain || null);
 const rainNow = computed(() => rain.value?.slots?.[0]?.mm || 0);
 
+/* How far ahead the rain bars look: 1, 2 or 3 hours (3 only when Buienradar
+   sent that much). Remembered per browser. */
+const WINDOW_KEY = 'dashboard.rainWindow';
+function readWindow() {
+  try {
+    return localStorage.getItem(WINDOW_KEY) || '2';
+  } catch {
+    return '2';
+  }
+}
+const rainWindow = ref(readWindow());
+watch(rainWindow, (value) => {
+  try {
+    localStorage.setItem(WINDOW_KEY, value);
+  } catch {
+    // Private mode or blocked storage: the choice just won't stick.
+  }
+});
+
+const windowOptions = computed(() => {
+  const n = rain.value?.slots?.length || 0;
+  return [
+    {value: '1', label: '1 h'},
+    {value: '2', label: '2 h'},
+    ...(n >= 36 ? [{value: '3', label: '3 h'}] : []),
+  ];
+});
+
+const activeWindow = computed(() =>
+  windowOptions.value.some((o) => o.value === rainWindow.value) ? rainWindow.value : '2'
+);
+
+const shownSlots = computed(() => (rain.value?.slots || []).slice(0, Number(activeWindow.value) * 12));
+const windowLabel = computed(() => (activeWindow.value === '1' ? 'next hour' : `next ${activeWindow.value} hours`));
+const rainSummary = computed(() => describeRain(shownSlots.value, windowLabel.value) || rain.value?.summary);
+
 /* Rain on a log-ish scale so a drizzle still shows and a downpour doesn't
    swamp everything else: 0.1 mm/h is a short bar, 4 mm/h fills the track. */
 const rainBars = computed(() =>
-  (rain.value?.slots || []).map((slot) => {
+  shownSlots.value.map((slot) => {
     const wet = slot.mm >= 0.1;
     const level = wet ? Math.min(1, Math.log10(1 + slot.mm) / Math.log10(5)) : 0;
     return {
@@ -58,9 +96,11 @@ const rainBars = computed(() =>
 );
 
 const rainTicks = computed(() => {
-  const slots = rain.value?.slots || [];
+  const slots = shownSlots.value;
   if (!slots.length) return [];
-  return [0, 6, 12, 18]
+  const quarter = slots.length / 4;
+  return [0, 1, 2, 3]
+      .map((q) => Math.round(q * quarter))
       .filter((i) => i < slots.length)
       .map((i) => ({key: i, left: `${(i / slots.length) * 100}%`, text: i === 0 ? 'Now' : slots[i].time}));
 });
@@ -133,14 +173,20 @@ const forecast = computed(() =>
 
         <!-- Rain, next two hours -->
         <div v-if="rain?.available">
-          <div class="flex items-baseline justify-between gap-4">
-            <p class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rain.summary }}</p>
-            <p class="shrink-0 t-note">next 2 hours</p>
+          <div class="flex items-center justify-between gap-4">
+            <p class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rainSummary }}</p>
+            <SegmentedControl
+                :model-value="activeWindow"
+                @update:model-value="rainWindow = $event"
+                :options="windowOptions"
+                size="sm"
+                label="How far ahead to show rain"
+            />
           </div>
           <div
               class="mt-3 flex h-14 items-end gap-[3px] border-b border-line"
               role="img"
-              :aria-label="rain.summary"
+              :aria-label="rainSummary"
           >
             <span
                 v-for="bar in rainBars"

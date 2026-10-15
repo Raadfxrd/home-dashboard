@@ -1,6 +1,7 @@
 <script setup>
 import {computed} from 'vue';
 import TimeChart from './TimeChart.vue';
+import SegmentedControl from './SegmentedControl.vue';
 
 /**
  * The NAS at a glance. A plain-language status line first, then the two
@@ -113,17 +114,13 @@ function meterTone(percent) {
   <section class="settle">
     <header class="mb-4 flex items-center justify-between gap-4">
       <h2 class="t-section">System</h2>
-      <div v-if="metrics.configured" role="group" aria-label="Time range" class="flex rounded-[10px] bg-raised p-[3px]">
-        <button
-            v-for="option in [{value: '1h', text: '1 hour'}, {value: '24h', text: '24 hours'}]"
-            :key="option.value"
-            type="button"
-            class="range-button press h-9 rounded-lg px-3.5 text-[0.8125rem]"
-            :class="range === option.value ? 'is-on font-semibold text-ink' : 'text-dim'"
-            :aria-pressed="range === option.value"
-            @click="emit('update:range', option.value)"
-        >{{ option.text }}</button>
-      </div>
+      <SegmentedControl
+          v-if="metrics.configured"
+          :model-value="range"
+          :options="[{value: '1h', label: '1 hour'}, {value: '24h', label: '24 hours'}]"
+          label="Time range"
+          @update:model-value="emit('update:range', $event)"
+      />
     </header>
 
     <div v-if="metrics.configured" class="panel">
@@ -256,17 +253,3 @@ function meterTone(percent) {
   </section>
 </template>
 
-<style scoped>
-.range-button {
-  transition: background-color 120ms var(--ease), color 120ms var(--ease);
-}
-
-.range-button.is-on {
-  background: rgb(58 58 60);
-}
-
-.range-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-</style>
