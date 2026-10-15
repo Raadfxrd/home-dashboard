@@ -1,15 +1,7 @@
 services:
-  backend:
-    build: ./backend
+  dashboard:
+    build: .
     env_file: .env
     ports:
-      - "3001:3001"
-    restart: unless-stopped
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
+      - "3000:3001"
     restart: unless-stopped

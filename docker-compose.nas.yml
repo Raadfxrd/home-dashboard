@@ -3,8 +3,8 @@
 name: home-dashboard
 
 services:
-  backend:
-    build: ./backend
+  dashboard:
+    build: .
     env_file: .env
     environment:
       # Disk usage is read with statfs, so any folder on the NAS volume works.
@@ -12,7 +12,8 @@ services:
       NAS_USAGE_PATH: /mnt/nas
     volumes:
       - ./:/mnt/nas:ro
-    # No published port: the frontend's nginx proxies /api to it internally.
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3001"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -20,12 +21,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-
-  frontend:
-    build: ./frontend
-    ports:
-      - "${DASHBOARD_PORT:-3000}:80"
-    depends_on:
-      backend:
-        condition: service_healthy
-    restart: unless-stopped

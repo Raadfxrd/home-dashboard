@@ -15,6 +15,6 @@ else
   DC="docker-compose"
 fi
 
-$DC -f docker-compose.nas.yml up -d --build
+$DC -f docker-compose.nas.yml up -d --build --remove-orphans
 docker image prune -f >/dev/null
 $DC -f docker-compose.nas.yml ps

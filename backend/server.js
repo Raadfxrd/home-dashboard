@@ -32,6 +32,16 @@ app.use('/api/weather', weatherRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/jellyfin', jellyfinRoutes);
 
+// In the Docker image the built frontend sits next to the server, so one
+// container serves both. In dev, Vite serves the frontend and this is skipped.
+const staticDir = process.env.STATIC_DIR || path.resolve(__dirname, 'public');
+if (fs.existsSync(path.join(staticDir, 'index.html'))) {
+	app.use(express.static(staticDir, {index: false, maxAge: '1h'}));
+	app.get(/^(?!\/api\/).*/, (_req, res) => {
+		res.sendFile(path.join(staticDir, 'index.html'));
+	});
+}
+
 app.use((_req, res) => {
 	res.status(404).json({error: 'Not found'});
 });
