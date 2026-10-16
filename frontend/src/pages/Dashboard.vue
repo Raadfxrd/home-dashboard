@@ -12,6 +12,8 @@ import ComingUp from '../components/ComingUp.vue';
 import IdleScreen from '../components/IdleScreen.vue';
 import SegmentedControl from '../components/SegmentedControl.vue';
 import {useIdle} from '../composables/useIdle.js';
+import AgendaList from '../components/AgendaList.vue';
+import {outingWindow, planFor} from '../composables/dayPlan.js';
 import {useWeatherStore} from '../stores/useWeatherStore.js';
 import {useHomeStore} from '../stores/useHomeStore.js';
 import {useJellyfinStore} from '../stores/useJellyfinStore.js';
@@ -28,6 +30,7 @@ const JELLYFIN_REFRESH_MS = 30 * 60 * 1000;
 const WEATHER_REFRESH_MS = 5 * 60 * 1000;
 
 const clock = ref('');
+const nowMs = ref(Date.now());
 const today = ref('');
 const jellyfinKey = ref(0);
 
@@ -47,6 +50,7 @@ const tasks = [
   {run: () => homeStore.fetchContainers(), active: 20000, idle: null},
   {run: () => homeStore.fetchLog(), active: 30000, idle: 300000},
   {run: () => homeStore.fetchUpcoming(), active: 30 * 60000, idle: null},
+  {run: () => homeStore.fetchCalendar(), active: 10 * 60000, idle: 30 * 60000},
   {run: refreshJellyfin, active: JELLYFIN_REFRESH_MS, idle: null},
   {
     run: () => {
@@ -87,6 +91,8 @@ function setRange(range) {
 function updateClock() {
   const now = new Date();
   clock.value = now.toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'});
+  // Minute precision is plenty for the agenda and the what-to-wear window.
+  if (now.getTime() - nowMs.value >= 60000) nowMs.value = now.getTime();
   today.value = now.toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long'});
 }
 
@@ -124,6 +130,15 @@ const suggestedError = computed(
 );
 
 const nas = computed(() => homeStore.serviceStatus.nasMetrics);
+
+/* What to wear: for your next appointment somewhere, otherwise the next few
+   hours (or tomorrow, late in the evening). */
+const wearPlan = computed(() =>
+  planFor(outingWindow(homeStore.calendar?.events || [], nowMs.value), {
+    here: weatherStore.amsterdamWeather,
+    outlook: weatherStore.outlook,
+  })
+);
 
 watch(coords, (val) => {
   if (val) weatherStore.fetchLocationWeather(val.lat, val.lon);
@@ -169,10 +184,12 @@ onUnmounted(() => {
           :outlook="weatherStore.outlook"
           :outlook-loading="weatherStore.outlookLoading"
           :is-loading="weatherStore.isLoading && !weatherStore.amsterdamWeather"
+          :plan="wearPlan"
       >
         <template #live>
+          <AgendaList :calendar="homeStore.calendar" :now="nowMs"/>
           <Transition name="slot">
-            <NowPlaying v-if="jellyfinStore.nowPlaying.length" compact :sessions="jellyfinStore.nowPlaying"/>
+            <NowPlaying v-if="jellyfinStore.nowPlaying.length" class="mt-auto" compact :sessions="jellyfinStore.nowPlaying"/>
           </Transition>
         </template>
       </HeroBand>

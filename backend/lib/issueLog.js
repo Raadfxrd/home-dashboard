@@ -23,6 +23,7 @@ const SOURCES = [
 	['sonarr', /sonarr/i],
 	['radarr', /radarr/i],
 	['docker', /docker|container/i],
+	['calendar', /calendar|icloud/i],
 ];
 
 function sourceOf(text) {

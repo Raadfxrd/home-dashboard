@@ -254,17 +254,27 @@ function demoOutlook() {
 			: `Light rain from about ${slots[firstWet].time}, dry again by ${slots[lastWet + 1].time}`;
 	const h = (n) => `${String((Math.floor(base / 60) + 3 * n) % 24).padStart(2, '0')}:00`;
 	const dayMm = raining ? [0.4, 1.1, 0.2, 0, 0, 0, 0.6, 0.3] : [0, 0, 0, 0, 0, 0, 0, 0];
+	const startHour = (Math.floor(base / 60) + 3) % 24;
+	const firstAt = new Date();
+	firstAt.setHours(Math.floor(base / 60) + 3, 0, 0, 0);
+	const temps = [11, 10, 11, 14, 15, 13, 12, 11];
+	const icons = ['10n', '04n', '04d', '02d', '01d', '03d', '10n', '04n'];
+	const blocks = temps.map((t, n) => ({
+		time: `${String((startHour + 3 * n) % 24).padStart(2, '0')}:00`,
+		at: firstAt.getTime() + n * 3 * 3600000,
+		temperature: t, feelsLike: t - 2, humidity: 82 - n * 3,
+		icon: icons[n], conditionId: icons[n].startsWith('10') ? 500 : icons[n].startsWith('01') ? 800 : 803,
+		condition: icons[n].startsWith('10') ? 'light rain' : icons[n].startsWith('01') ? 'clear sky' : 'broken clouds',
+		rainChance: [70, 20, 10, 0, 0, 10, 60, 40][n], mm: dayMm[n], snow: false,
+		windSpeed: 19 + n, windGust: 34 + n * 2, windDirection: 'SW', clouds: icons[n].startsWith('01') ? 5 : 75,
+		visibilityKm: 10, daylight: icons[n].endsWith('d'),
+	}));
 	const dayChance = raining ? [80, 90, 50, 10, 0, 10, 60, 40] : [0, 0, 10, 0, 0, 0, 10, 0];
 	return {
 		rain: {available: true, slots, summary},
 		day: dayMm.map((mm, n) => ({time: h(n), mm, rainChance: dayChance[n]})),
-		hours: [
-			{time: h(1), temperature: 11, icon: '10n', rainChance: 70},
-			{time: h(2), temperature: 10, icon: '04n', rainChance: 20},
-			{time: h(3), temperature: 11, icon: '04d', rainChance: 10},
-			{time: h(4), temperature: 14, icon: '02d', rainChance: 0},
-			{time: h(5), temperature: 15, icon: '01d', rainChance: 0},
-		],
+		hours: blocks.slice(0, 5),
+		blocks,
 	};
 }
 
@@ -306,8 +316,10 @@ function systemHistory(range) {
 function demoNowPlaying() {
 	const show = SHOWS[1] || SUGGESTED[0];
 	return {configured: true, sessions: [
-		{id: 'np1', user: 'Borys', device: 'Apple TV', client: 'Infuse', title: show.title, subtitle: 'S02E05 · The Return', poster: show.poster, progress: 37.5, positionSeconds: 1290, runtimeSeconds: 3440, paused: false, playMethod: 'DirectPlay', ip: '192.168.2.3', network: 'local'},
-		{id: 'np2', user: 'Emile', device: 'iPhone', client: 'Swiftfin', title: SUGGESTED[2].title, subtitle: '2024', poster: SUGGESTED[2].poster, progress: 81, positionSeconds: 5600, runtimeSeconds: 6900, paused: true, playMethod: 'Transcode', ip: '100.103.201.24', network: 'tailscale'},
+		{id: 'np1', user: 'Borys', device: 'Apple TV', client: 'Infuse', title: show.title, subtitle: 'S02E05 · The Return', poster: show.poster, progress: 37.5, positionSeconds: 1290, runtimeSeconds: 3440, paused: false, playMethod: 'DirectPlay', ip: '192.168.2.3', network: 'local', url: '#',
+			details: {overview: 'A mapmaker returns to the coast she charted as a child, and finds the shoreline no longer matches her maps.', genres: ['Drama', 'Mystery'], rating: 8.1, certification: '12', video: '4K · HEVC · Dolby Vision', audio: 'English - Dolby Atmos', subtitles: 'Off', bitrateMbps: null, transcodeReasons: [], videoDirect: true, audioDirect: true, hardware: null, app: 'Infuse 8.1'}},
+		{id: 'np2', user: 'Emile', device: 'iPhone', client: 'Swiftfin', title: SUGGESTED[2].title, subtitle: '2024', poster: SUGGESTED[2].poster, progress: 81, positionSeconds: 5600, runtimeSeconds: 6900, paused: true, playMethod: 'Transcode', ip: '100.103.201.24', network: 'tailscale', url: '#',
+			details: {overview: 'Two architects compete to rebuild a city that was only ever drawn on paper.', genres: ['Drama'], rating: 7.4, certification: '16', video: '1080p · H264', audio: 'Dutch - AAC Stereo', subtitles: 'English - SRT', bitrateMbps: 6.2, transcodeReasons: ['the audio codec isn\'t supported by the player', 'the bitrate is above the player\'s limit'], videoDirect: true, audioDirect: false, hardware: 'vaapi', app: 'Swiftfin 1.3'}},
 	]};
 }
 
@@ -320,9 +332,11 @@ function demoUpcoming() {
 	};
 	const p = (i) => (LIBRARY[i] || LIBRARY[0]).poster;
 	const items = [
-		{id: 'u1', kind: 'episode', title: 'Low Tide', subtitle: 'S02E06 · Slack Water', at: day(0, 21), allDay: false, hasFile: false, poster: p(1)},
+		{id: 'u1', kind: 'episode', title: 'Low Tide', subtitle: 'S02E06 · Slack Water', at: day(0, 21), allDay: false, hasFile: false, poster: p(1),
+			details: {overview: 'With the dyke inspection looming, Sanne finally reads the letters her father left behind.', network: 'NPO 1', runtimeMin: 52, genres: ['Drama'], app: 'Sonarr', link: '#'}},
 		{id: 'u2', kind: 'episode', title: 'Northbound', subtitle: 'S01E04 · Crossing', at: day(0, 3), allDay: false, hasFile: true, poster: p(2)},
-		{id: 'u3', kind: 'movie', title: 'Paper Cities', subtitle: 'Digital release · 2026', at: day(1, 0), allDay: true, hasFile: false, poster: p(3)},
+		{id: 'u3', kind: 'movie', title: 'Paper Cities', subtitle: 'Digital release · 2026', at: day(1, 0), allDay: true, hasFile: false, poster: p(3),
+			details: {overview: 'Two architects compete to rebuild a city that was only ever drawn on paper.', studio: 'Northlight', runtimeMin: 118, genres: ['Drama', 'Romance'], certification: '12', releases: [{label: 'In cinemas', at: day(-40, 0)}, {label: 'Digital release', at: day(1, 0)}], app: 'Radarr', link: '#'}},
 		{id: 'u4', kind: 'episode', title: 'The Cartographer', subtitle: 'S03E01 · New Ground', at: day(2, 22), allDay: false, hasFile: false, poster: p(4)},
 		{id: 'u5', kind: 'episode', title: 'Station Eleven Road', subtitle: 'S01E08 · Signal', at: day(4, 20, 30), allDay: false, hasFile: false, poster: p(5)},
 		{id: 'u6', kind: 'movie', title: 'The Long Field', subtitle: 'In cinemas · 2026', at: day(5, 0), allDay: true, hasFile: false, poster: p(6)},
@@ -367,6 +381,40 @@ function demoLog() {
 	]};
 }
 
+/* A believable today and tomorrow for the agenda and what-to-wear. */
+function demoCalendar() {
+	const at = (dayOffset, h, m = 0) => {
+		const d = new Date();
+		d.setDate(d.getDate() + dayOffset);
+		d.setHours(h, m, 0, 0);
+		return d.toISOString();
+	};
+	const now = new Date();
+	const soon = new Date(now.getTime() + 2 * 3600000);
+	soon.setMinutes(0, 0, 0);
+	const events = [
+		{id: 'e0', title: 'Rent due', start: at(0, 0), end: at(1, 0), allDay: true, out: false, location: null, calendar: 'Home'},
+		{id: 'e1', title: 'Standup', start: at(0, 9, 30), end: at(0, 9, 45), allDay: false, out: false, location: 'https://teams.microsoft.com/l/meetup', calendar: 'Work'},
+		{id: 'e2', title: 'Dentist', start: soon.toISOString(), end: new Date(soon.getTime() + 3600000).toISOString(), allDay: false, out: true, location: 'Grote Markt 2, Haarlem', calendar: 'Personal'},
+		{id: 'e3', title: 'Dinner with Emile', start: at(0, 19), end: at(0, 21, 30), allDay: false, out: true, location: 'Restaurant ML, Haarlem', calendar: 'Personal'},
+		{id: 'e4', title: 'Studio Dark Tech', start: at(1, 10), end: at(1, 16), allDay: false, out: true, location: 'Wibautstraat 2, Amsterdam', calendar: 'School'},
+	];
+	return {configured: true, online: true, calendars: ['Home', 'Work', 'Personal', 'School'], events, error: null};
+}
+
+function demoItem(url) {
+	const id = url.split('/').pop().split('?')[0];
+	const base = LIBRARY.find((i) => i.id === id) || LIBRARY[0];
+	return {
+		...base,
+		tagline: 'Every map is a promise.',
+		overview: 'A mapmaker returns to the coast she charted as a child, and finds the shoreline no longer matches her maps. What she uncovers rewrites her family history and the town that kept its secrets.',
+		genres: ['Drama', 'Mystery'], rating: 7.8, certification: '12', runtimeMin: 124, studios: ['Northlight'],
+		directors: ['Anna Visser'], cast: ['Lotte de Wit', 'Jonas Meier', 'Iris Bakker', 'Daan Smit'],
+		played: false, progress: 35, url: '#',
+	};
+}
+
 function match(url = '') {
 	const path = url.split('?')[0];
 	if (path === '/weather') return WEATHER.Amsterdam;
@@ -375,6 +423,8 @@ function match(url = '') {
 	if (path === '/home/services-status') return servicesStatus();
 	if (path === '/jellyfin/now-playing') return demoNowPlaying();
 	if (path === '/upcoming') return demoUpcoming();
+	if (path === '/calendar') return new URLSearchParams(location.search).get('nocal') ? {configured: false, events: []} : demoCalendar();
+	if (path.startsWith('/jellyfin/item/')) return demoItem(path);
 	if (path === '/containers') return demoContainers();
 	if (path === '/logs') return demoLog();
 	if (path === '/logs/clear') {

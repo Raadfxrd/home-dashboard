@@ -4,6 +4,8 @@ import AppIcon from './AppIcon.vue';
 import RollingNumber from './RollingNumber.vue';
 import WeatherBackdrop from './WeatherBackdrop.vue';
 import SegmentedControl from './SegmentedControl.vue';
+import WearAdvice from './WearAdvice.vue';
+import {useDetailStore} from '../stores/useDetailStore.js';
 import {describeRain} from '../composables/rainSummary.js';
 
 const props = defineProps({
@@ -14,6 +16,7 @@ const props = defineProps({
   outlook: {type: Object, default: null},
   isLoading: {type: Boolean, default: false},
   outlookLoading: {type: Boolean, default: false},
+  plan: {type: Object, default: null},
 });
 
 /* OpenWeather's icon code is only used to pick a glyph from our own set. */
@@ -27,6 +30,8 @@ function iconFor(code = '') {
   if (code.startsWith('50')) return 'fog';
   return 'cloud';
 }
+
+const detail = useDetailStore();
 
 const condIcon = computed(() => iconFor(props.here?.icon || ''));
 
@@ -274,11 +279,13 @@ const forecast = computed(() =>
 
         <!-- Next 12 hours -->
         <ol v-if="forecast.length" class="reveal grid grid-cols-5 gap-2">
-          <li
-              v-for="slot in forecast"
-              :key="slot.time"
-              class="flex min-w-0 flex-col gap-2 rounded-md bg-raised/70 px-2.5 py-3 backdrop-blur-sm sm:px-3"
-          >
+          <li v-for="(slot, i) in forecast" :key="slot.time" class="min-w-0">
+            <button
+                type="button"
+                class="forecast-tile press flex w-full min-w-0 flex-col gap-2 rounded-md bg-raised/70 px-2.5 py-3 text-left backdrop-blur-sm sm:px-3"
+                :aria-label="`${slot.time}: ${slot.temperature} degrees, ${slot.condition || ''}. Show details`"
+                @click="detail.open('forecast', {block: slot, next: forecast[i + 1]?.time, glyph: slot.glyph}, $event)"
+            >
             <span class="flex items-center justify-between gap-1">
               <span class="t-read t-note text-[0.75rem]">{{ slot.time }}</span>
               <AppIcon :size="17" class="shrink-0 text-dim" :name="slot.glyph"/>
@@ -288,8 +295,11 @@ const forecast = computed(() =>
               <template v-if="slot.rainy">{{ slot.rainChance }}%<span class="hidden sm:inline"> rain</span></template>
               <template v-else>dry</template>
             </span>
+            </button>
           </li>
         </ol>
+
+        <WearAdvice v-if="plan" class="reveal" :plan="plan"/>
         <div v-else-if="outlookLoading" class="grid grid-cols-5 gap-2" aria-hidden="true">
           <span v-for="i in 5" :key="i" class="skeleton h-[5.75rem] rounded-md"></span>
         </div>
@@ -324,8 +334,9 @@ const forecast = computed(() =>
     align-items: start;
   }
 
+  /* The agenda sits up under the clock, now playing at the bottom. */
   .hero-live {
-    align-self: end;
+    align-self: stretch;
   }
 }
 
@@ -339,6 +350,22 @@ const forecast = computed(() =>
 
 .hero-live {
   grid-area: live;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.forecast-tile {
+  transition: background-color 120ms var(--ease);
+}
+
+.forecast-tile:hover {
+  background: rgb(var(--raised-rgb) / 0.95);
+}
+
+.forecast-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Bars outside the chosen window shrink to nothing, so switching between

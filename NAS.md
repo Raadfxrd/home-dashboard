@@ -23,6 +23,11 @@ Lives in `/volume1/Projects/home-dashboard` on the Asustor (the `Projects` share
   `RADARR_URL` and `RADARR_API_KEY` to `.env`. Keys are under Settings › General.
 - **Containers** in the bottom bar read the Docker socket, mounted read-only.
   `deploy.sh` gives the dashboard the socket's group automatically.
+- **Calendar** (agenda under the clock, and what to wear for when you're out):
+  create an app-specific password at appleid.apple.com › Sign-In and Security ›
+  App-Specific Passwords, then set `ICLOUD_USERNAME` (your Apple ID email) and
+  `ICLOUD_APP_PASSWORD` in `.env`. Optionally limit it with
+  `CALENDAR_NAMES=Home,Work`. Events with a physical location count as "out".
 
 ## Open it
 

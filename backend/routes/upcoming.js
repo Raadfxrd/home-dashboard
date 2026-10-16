@@ -52,6 +52,17 @@ async function fetchSonarr({start, end}) {
 			allDay: false,
 			hasFile: Boolean(ep.hasFile),
 			poster: poster(ep.series?.images),
+			details: {
+				overview: ep.overview || ep.series?.overview || null,
+				overviewIsSeries: !ep.overview,
+				network: ep.series?.network || null,
+				runtimeMin: ep.runtime || ep.series?.runtime || null,
+				genres: ep.series?.genres || [],
+				episodeTitle: ep.title || null,
+				season: ep.seasonNumber ?? null,
+				link: ep.series?.titleSlug ? `${SONARR_URL}/series/${ep.series.titleSlug}` : null,
+				app: 'Sonarr',
+			},
 		}));
 }
 
@@ -82,6 +93,18 @@ async function fetchRadarr({start, end}) {
 				allDay: true,
 				hasFile: Boolean(movie.hasFile),
 				poster: poster(movie.images),
+				details: {
+					overview: movie.overview || null,
+					studio: movie.studio || null,
+					runtimeMin: movie.runtime || null,
+					genres: movie.genres || [],
+					certification: movie.certification || null,
+					releases: RELEASES
+						.filter(([f]) => movie[f])
+						.map(([f, l]) => ({label: l, at: movie[f]})),
+					link: `${RADARR_URL}/movie/${movie.titleSlug || movie.tmdbId}`,
+					app: 'Radarr',
+				},
 			});
 		}
 	}

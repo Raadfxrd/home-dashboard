@@ -575,6 +575,62 @@ function episodeCode(item) {
 	return `S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`;
 }
 
+const TRANSCODE_REASONS = {
+	ContainerNotSupported: 'the file container isn\'t supported by the player',
+	VideoCodecNotSupported: 'the video codec isn\'t supported by the player',
+	AudioCodecNotSupported: 'the audio codec isn\'t supported by the player',
+	SubtitleCodecNotSupported: 'the subtitles have to be burned in',
+	ContainerBitrateExceedsLimit: 'the bitrate is above the player\'s limit',
+	VideoBitrateNotSupported: 'the video bitrate is above the player\'s limit',
+	AudioBitrateNotSupported: 'the audio bitrate is above the player\'s limit',
+	VideoResolutionNotSupported: 'the resolution is above the player\'s limit',
+	VideoLevelNotSupported: 'the video level isn\'t supported',
+	VideoProfileNotSupported: 'the video profile isn\'t supported',
+	VideoRangeTypeNotSupported: 'HDR isn\'t supported by the player',
+	AudioChannelsNotSupported: 'the player can\'t take that many audio channels',
+	DirectPlayError: 'direct play failed',
+};
+
+function resolution(stream) {
+	const w = Number(stream?.Width) || 0;
+	const h = Number(stream?.Height) || 0;
+	if (w >= 3800 || h >= 2100) return '4K';
+	if (w >= 2500 || h >= 1400) return '1440p';
+	if (w >= 1900 || h >= 1000) return '1080p';
+	if (w >= 1200 || h >= 700) return '720p';
+	return h ? `${h}p` : null;
+}
+
+/* The parts of a session worth a second look: picture, sound, subtitles,
+   bitrate and, when transcoding, the reason in plain words. */
+function streamDetails(session) {
+	const item = session.NowPlayingItem || {};
+	const state = session.PlayState || {};
+	const t = session.TranscodingInfo || null;
+	const streams = item.MediaStreams || [];
+	const video = streams.find((s) => s.Type === 'Video');
+	const audio = streams.find((s) => s.Type === 'Audio' && s.Index === state.AudioStreamIndex) || streams.find((s) => s.Type === 'Audio' && s.IsDefault);
+	const subtitle = Number.isInteger(state.SubtitleStreamIndex) && state.SubtitleStreamIndex >= 0
+		? streams.find((s) => s.Type === 'Subtitle' && s.Index === state.SubtitleStreamIndex)
+		: null;
+	const range = video?.VideoRangeType && video.VideoRangeType !== 'SDR' ? video.VideoRangeType.replace('DOVI', 'Dolby Vision') : null;
+	return {
+		overview: item.Overview || null,
+		genres: item.Genres || [],
+		rating: item.CommunityRating ? Math.round(item.CommunityRating * 10) / 10 : null,
+		certification: item.OfficialRating || null,
+		video: video ? [resolution(video), String(video.Codec || '').toUpperCase(), range].filter(Boolean).join(' · ') : null,
+		audio: audio ? audio.DisplayTitle || [audio.Language, audio.Codec].filter(Boolean).join(' ') : null,
+		subtitles: subtitle ? subtitle.DisplayTitle || subtitle.Language || 'On' : 'Off',
+		bitrateMbps: t?.Bitrate ? Math.round(t.Bitrate / 1e5) / 10 : null,
+		transcodeReasons: (t?.TranscodeReasons || []).map((r) => TRANSCODE_REASONS[r] || r),
+		videoDirect: t ? Boolean(t.IsVideoDirect) : true,
+		audioDirect: t ? Boolean(t.IsAudioDirect) : true,
+		hardware: t?.HardwareAccelerationType || null,
+		app: [session.Client, session.ApplicationVersion].filter(Boolean).join(' '),
+	};
+}
+
 router.get('/now-playing', async (_req, res) => {
 	if (!JELLYFIN_API_KEY) {
 		return res.json({configured: false, sessions: []});
@@ -608,12 +664,58 @@ router.get('/now-playing', async (_req, res) => {
 					paused: Boolean(state.IsPaused),
 					playMethod: state.PlayMethod || null,
 					...describeAddress(session.RemoteEndPoint),
+					details: streamDetails(session),
 				};
 			});
 		res.json({configured: true, sessions});
 	} catch (err) {
 		console.error('Jellyfin now playing error:', getErrorDetails(err));
 		res.status(502).json({error: 'Failed to fetch Jellyfin sessions'});
+	}
+});
+
+/* One title's details for the detail panel: synopsis, people, runtime,
+   ratings and where you are in it. */
+router.get('/item/:id', async (req, res) => {
+	const id = String(req.params.id || '');
+	if (!/^[a-f0-9-]{32,36}$/i.test(id)) return res.status(400).json({error: 'Unknown item'});
+	if (!JELLYFIN_API_KEY) return res.status(503).json({error: 'Jellyfin is not configured'});
+	try {
+		const userId = await getResolvedUserId();
+		const {data: item} = await axios.get(`${JELLYFIN_URL}/Items/${id}`, {
+			headers: jellyfinHeaders(),
+			params: {userId},
+			timeout: 8000,
+		});
+		const people = item.People || [];
+		const runtimeMin = item.RunTimeTicks ? Math.round(item.RunTimeTicks / 6e8) : null;
+		const position = item.UserData?.PlaybackPositionTicks || 0;
+		res.json({
+			id: item.Id,
+			type: item.Type,
+			title: item.Name,
+			tagline: item.Taglines?.[0] || null,
+			overview: item.Overview || null,
+			year: item.ProductionYear || null,
+			endYear: item.EndDate ? new Date(item.EndDate).getFullYear() : null,
+			status: item.Status || null,
+			genres: item.Genres || [],
+			rating: item.CommunityRating ? Math.round(item.CommunityRating * 10) / 10 : null,
+			criticRating: item.CriticRating ?? null,
+			certification: item.OfficialRating || null,
+			runtimeMin,
+			seasons: item.Type === 'Series' ? item.ChildCount ?? null : null,
+			studios: (item.Studios || []).map((s) => s.Name).slice(0, 3),
+			directors: people.filter((p) => p.Type === 'Director').map((p) => p.Name).slice(0, 2),
+			cast: people.filter((p) => p.Type === 'Actor').map((p) => p.Name).slice(0, 6),
+			played: Boolean(item.UserData?.Played),
+			progress: item.RunTimeTicks && position ? Math.round((position / item.RunTimeTicks) * 100) : 0,
+			poster: buildPosterUrl(item.Id),
+			url: buildDetailsUrl(item.Id),
+		});
+	} catch (err) {
+		console.error('Jellyfin item error:', getErrorDetails(err));
+		res.status(502).json({error: 'Failed to load this title from Jellyfin'});
 	}
 });
 

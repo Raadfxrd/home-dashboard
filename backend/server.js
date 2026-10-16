@@ -23,6 +23,7 @@ const homeRoutes = require('./routes/home');
 const jellyfinRoutes = require('./routes/jellyfin');
 const upcomingRoutes = require('./routes/upcoming');
 const containerRoutes = require('./routes/containers');
+const calendarRoutes = require('./routes/calendar');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,6 +49,7 @@ app.use('/api/home', homeRoutes);
 app.use('/api/jellyfin', jellyfinRoutes);
 app.use('/api/upcoming', upcomingRoutes);
 app.use('/api/containers', containerRoutes);
+app.use('/api/calendar', calendarRoutes);
 
 // In the Docker image the built frontend sits next to the server, so one
 // container serves both. In dev, Vite serves the frontend and this is skipped.

@@ -5,6 +5,10 @@
  * network tag makes a stream that goes through Tailscale instead of the
  * local network obvious at a glance.
  */
+import {useDetailStore} from '../stores/useDetailStore.js';
+
+const detail = useDetailStore();
+
 defineProps({
   sessions: {type: Array, default: () => []},
   // In the top band: a small label and one column of cards.
@@ -51,13 +55,12 @@ function method(s) {
         class="grid grid-cols-1 gap-3"
         :class="compact ? '' : 'md:grid-cols-2 2xl:grid-cols-3'"
     >
-      <a
+      <button
           v-for="s in sessions"
           :key="s.id"
-          :href="s.url"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="np-card panel press group flex gap-4 p-3"
+          type="button"
+          class="np-card panel press group flex gap-4 p-3 text-left"
+          @click="detail.open('stream', s, $event)"
       >
         <span class="well relative aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-[8px]">
           <img v-if="s.poster" :src="s.poster" :alt="s.title" class="h-full w-full object-cover" loading="lazy"/>
@@ -88,7 +91,7 @@ function method(s) {
             </span>
           </span>
         </span>
-      </a>
+      </button>
     </TransitionGroup>
   </section>
 </template>

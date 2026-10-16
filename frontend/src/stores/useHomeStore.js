@@ -12,6 +12,7 @@ export const useHomeStore = defineStore('home', () => {
 	const logEntries = ref([]);
 	const logClearedAt = ref(0);
 	const upcoming = ref(null);
+	const calendar = ref(null);
 	const historyRange = ref('1h');
 	const serviceStatus = ref({
 		prowlarr: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
@@ -134,6 +135,14 @@ export const useHomeStore = defineStore('home', () => {
 		}
 	}
 
+	async function fetchCalendar() {
+		try {
+			calendar.value = await get('/calendar');
+		} catch {
+			calendar.value = calendar.value || {configured: false, events: []};
+		}
+	}
+
 	async function fetchUpcoming() {
 		try {
 			upcoming.value = await get('/upcoming');
@@ -147,6 +156,8 @@ export const useHomeStore = defineStore('home', () => {
 		logEntries,
 		logClearedAt,
 		upcoming,
+		calendar,
+		fetchCalendar,
 		fetchContainers,
 		fetchLog,
 		clearLog,

@@ -89,14 +89,25 @@ async function fetchHours(loc) {
     const offset = response.data?.city?.timezone ?? 0;
     return (response.data?.list || []).slice(0, 8).map((entry) => {
       const mm3h = (Number(entry.rain?.['3h']) || 0) + (Number(entry.snow?.['3h']) || 0);
+      const round = (v) => (Number.isFinite(v) ? Math.round(v) : null);
       return {
         time: localTime(entry.dt, offset),
+        at: entry.dt * 1000,
         temperature: Math.round(entry.main?.temp),
+        feelsLike: round(entry.main?.feels_like),
+        humidity: round(entry.main?.humidity),
         icon: entry.weather?.[0]?.icon || null,
         conditionId: entry.weather?.[0]?.id ?? null,
         condition: entry.weather?.[0]?.description || null,
         rainChance: Number.isFinite(entry.pop) ? Math.round(entry.pop * 100) : null,
         mm: Math.round((mm3h / 3) * 100) / 100,
+        snow: (Number(entry.snow?.['3h']) || 0) > 0,
+        windSpeed: round((entry.wind?.speed ?? NaN) * 3.6),
+        windGust: round((entry.wind?.gust ?? NaN) * 3.6),
+        windDirection: compass(entry.wind?.deg),
+        clouds: round(entry.clouds?.all),
+        visibilityKm: Number.isFinite(entry.visibility) ? Math.round(entry.visibility / 100) / 10 : null,
+        daylight: entry.sys?.pod === 'd',
       };
     });
   });
@@ -240,6 +251,8 @@ router.get('/outlook', async (req, res) => {
   res.json({
     hours: hours.slice(0, 5),
     day: hours.map(({ time, mm, rainChance }) => ({ time, mm, rainChance })),
+    // All eight blocks in full, for what-to-wear and the forecast details.
+    blocks: hours,
     rain,
   });
 });
