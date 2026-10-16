@@ -359,7 +359,7 @@ const forecast = computed(() =>
           <li v-for="(slot, i) in forecast" :key="slot.time" class="min-w-0">
             <button
                 type="button"
-                class="forecast-tile press flex w-full min-w-0 flex-col gap-2 rounded-md bg-raised/70 px-2.5 py-3 text-left backdrop-blur-sm sm:px-3"
+                class="forecast-tile press flex w-full min-w-0 flex-col gap-2 glass rounded-md px-2.5 py-3 text-left sm:px-3"
                 :aria-label="`${slot.time}: ${slot.temperature} degrees, ${slot.condition || ''}. Show details`"
                 @click="detail.open('forecast', {block: slot, next: forecast[i + 1]?.time, glyph: slot.glyph}, $event)"
             >
@@ -437,7 +437,7 @@ const forecast = computed(() =>
 }
 
 .forecast-tile:hover {
-  background: rgb(var(--raised-rgb) / 0.95);
+  background: var(--glass-fill-hover);
 }
 
 .forecast-tile:focus-visible {

@@ -44,6 +44,16 @@
 	--fault: rgb(var(--fault-rgb));
 	--accent: rgb(var(--accent-rgb));
 
+	/* Glass: a faint light fill over whatever is behind, blurred, with a
+	   hairline edge catching the light at the top. */
+	--glass-fill: rgb(255 255 255 / 0.045);
+	--glass-fill-hover: rgb(255 255 255 / 0.075);
+	--glass-edge: rgb(255 255 255 / 0.075);
+	--glass-blur: blur(28px) saturate(170%);
+	/* For things that float above other content: denser, so text on
+	   them always reads. */
+	--glass-float: rgb(38 38 42 / 0.74);
+
 	--r-lg: 16px;
 	--r-md: 10px;
 	--r-sm: 7px;
@@ -82,16 +92,32 @@ body {
 
 @layer components {
 	/* ---- Surfaces -------------------------------------------------
-	   Exactly one elevation. Panels sit on the base; wells sink into it.
-	   Nothing translucent ever nests inside anything translucent. */
+	   Frosted glass over a dim ambient light (App.vue) and the weather.
+	   Panels and cards share one material; wells sink into it. */
 
-	.panel {
-		background: var(--raised);
+	.panel,
+	.glass {
+		background: var(--glass-fill);
 		border-radius: var(--r-lg);
+		box-shadow: inset 0 0 0 1px var(--glass-edge), inset 0 1px 0 rgb(255 255 255 / 0.04);
+		-webkit-backdrop-filter: var(--glass-blur);
+		backdrop-filter: var(--glass-blur);
+	}
+
+	.glass {
+		border-radius: var(--r-md);
+	}
+
+	/* Floating layers: popovers and the detail sheet. */
+	.glass-float {
+		background: var(--glass-float);
+		box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), 0 24px 70px rgb(0 0 0 / 0.55);
+		-webkit-backdrop-filter: blur(40px) saturate(180%);
+		backdrop-filter: blur(40px) saturate(180%);
 	}
 
 	.well {
-		background: var(--sunk);
+		background: rgb(0 0 0 / 0.28);
 		border-radius: var(--r-md);
 	}
 
@@ -305,6 +331,14 @@ body {
 @media (prefers-reduced-transparency: reduce) {
 	.chrome {
 		background: var(--base);
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
+
+	.panel,
+	.glass,
+	.glass-float {
+		background: var(--raised);
 		backdrop-filter: none;
 		-webkit-backdrop-filter: none;
 	}

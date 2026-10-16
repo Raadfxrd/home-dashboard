@@ -104,7 +104,7 @@ const calendarRow = computed(() => {
     tone: c.error && !read.length ? 'fault' : c.error || failed.length ? 'warn' : 'live',
     text: read.length ? String(read.length) : c.error ? 'error' : '0',
     items: [
-      ...read.map((s) => ({id: `r-${s.name}`, name: s.name, tone: 'live', note: [s.source === 'feed' ? 'feed' : '', s.count != null ? `${s.count} this week` : ''].filter(Boolean).join(' · ')})),
+      ...read.map((s) => ({id: `r-${s.name}`, name: s.name, tone: 'live', note: [s.source === 'feed' ? 'feed' : s.source === 'Contacts' ? 'from contacts' : '', s.count != null ? `${s.count} this week` : ''].filter(Boolean).join(' · ')})),
       ...failed.map((s) => ({id: `f-${s.name}`, name: s.name, tone: 'fault', note: 'unreadable', detail: s.error})),
       ...sources.filter((s) => s.skipped).map((s) => ({id: `s-${s.name}`, name: s.name, tone: 'off', note: s.skipped})),
     ],
@@ -332,14 +332,16 @@ onUnmounted(() => {
 
 .status-trigger:hover,
 .status-trigger.is-open {
-  background: rgb(var(--raised-rgb));
+  background: var(--glass-fill-hover);
 }
 
 .status-pop {
-  background: rgb(58 58 60);
-  border: 1px solid rgb(var(--line-rgb));
+  /* Frosted, but dense enough that the list always reads over the page. */
+  background: rgb(44 44 48 / 0.9);
   border-radius: var(--r-md);
-  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), 0 18px 40px rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
 }
 
 .log-detail {

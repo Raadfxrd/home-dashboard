@@ -48,7 +48,9 @@ const mapsUrl = computed(() => (e.value.location ? `https://maps.apple.com/?q=${
     <p class="t-note">{{ when }}</p>
     <h2 class="mt-1 pr-8 text-[1.375rem] font-semibold leading-tight tracking-[-0.02em] text-ink">{{ e.title }}</h2>
 
-    <DetailRows class="mt-4" :rows="[{label: 'Calendar', value: e.calendar}]"/>
+    <DetailRows class="mt-4" :rows="e.kind === 'birthday'
+      ? [{label: 'Turns', value: e.age}, {label: 'From', value: 'Your contacts'}]
+      : [{label: 'Calendar', value: e.calendar}]"/>
 
     <a v-if="mapsUrl" :href="mapsUrl" target="_blank" rel="noopener noreferrer" class="press mt-3 flex items-start gap-2.5 rounded-md bg-line-soft/60 p-3 text-[0.875rem] text-ink hover:bg-line-soft">
       <AppIcon :size="17" class="mt-0.5 shrink-0 text-dim" name="pin"/>

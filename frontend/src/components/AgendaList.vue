@@ -85,7 +85,11 @@ function when(e) {
           >
             <span class="w-[4.5rem] shrink-0 text-[0.8125rem] tabular-nums text-dim">{{ when(e) }}</span>
             <span class="min-w-0 flex-1">
-              <span class="block truncate text-[0.9375rem] text-ink">{{ e.title }}</span>
+              <span class="flex items-center gap-1.5 text-[0.9375rem] text-ink">
+                <AppIcon v-if="e.kind === 'birthday'" :size="14" name="gift" class="shrink-0 text-dim"/>
+                <span class="truncate">{{ e.kind === 'birthday' && e.person ? e.person : e.title }}</span>
+              </span>
+              <span v-if="e.kind === 'birthday'" class="block truncate text-[0.75rem] text-faint">{{ e.age ? `Turns ${e.age}` : 'Birthday' }}</span>
               <span v-if="e.out" class="flex items-center gap-1 truncate text-[0.75rem] text-faint">
                 <AppIcon :size="12" name="pin" class="shrink-0"/>{{ e.location }}
               </span>
@@ -105,7 +109,7 @@ function when(e) {
 }
 
 .agenda-row:hover {
-  background: rgb(var(--raised-rgb) / 0.7);
+  background: var(--glass-fill-hover);
 }
 
 .agenda-row:focus-visible {

@@ -61,7 +61,7 @@ onUnmounted(() => resizeObserver?.disconnect());
       ref="track"
       role="radiogroup"
       :aria-label="label"
-      class="seg relative inline-flex shrink-0 bg-raised"
+      class="seg glass relative inline-flex shrink-0"
       :class="size === 'sm' ? 'seg-sm' : 'seg-md'"
       @keydown="onKey"
   >
@@ -105,8 +105,8 @@ onUnmounted(() => resizeObserver?.disconnect());
   bottom: var(--seg-pad);
   left: 0;
   border-radius: calc(var(--seg-radius) - var(--seg-pad));
-  background: rgb(58 58 60);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  background: rgb(255 255 255 / 0.15);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0.5px 0 rgb(255 255 255 / 0.12);
   opacity: 0;
 }
 

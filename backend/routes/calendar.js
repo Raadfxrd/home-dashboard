@@ -41,9 +41,15 @@ const FEEDS = String(process.env.CALENDAR_ICS_URLS || '')
 		return {name, url};
 	});
 const ICLOUD = Boolean(USERNAME && PASSWORD);
+const CONTACTS_SERVER = process.env.ICLOUD_CARDDAV_URL || 'https://contacts.icloud.com';
+// Birthdays come from your contacts; CALENDAR_BIRTHDAYS=false turns them off.
+const BIRTHDAYS = ICLOUD && !/^(0|false|no|off)$/i.test(process.env.CALENDAR_BIRTHDAYS || '');
+const BIRTHDAY_CACHE_MS = 6 * 60 * 60 * 1000;
 
-// Calendars that are never about going somewhere.
-const SKIP = /birthdays|verjaardagen|holidays|feestdagen|siri suggestions|reminders/i;
+// Calendars left out: holidays and suggestions aren't plans, and birthdays
+// are read from your contacts instead (so they don't show twice).
+const SKIP = /holidays|feestdagen|siri suggestions/i;
+const BIRTHDAY_CALENDAR = /birthdays|verjaardagen/i;
 // Locations that are links or calls rather than places.
 const ONLINE = /zoom|teams\.microsoft|meet\.google|webex|facetime|whereby|discord|https?:\/\/|\bonline\b|\bremote\b/i;
 
@@ -118,8 +124,10 @@ async function loadICloud(range) {
 		all.map(async (cal) => {
 			const name = clean(cal.displayName) || 'Untitled';
 			const entry = {name, source: 'iCloud', events: [], skipped: null, error: null};
-			if (cal.components && !cal.components.includes('VEVENT')) entry.skipped = 'reminders only';
-			else if (ONLY.length && !ONLY.includes(name.toLowerCase())) entry.skipped = 'not in CALENDAR_NAMES';
+			// Reminder lists aren't calendars; leave them out of the list entirely.
+			if (cal.components && !cal.components.includes('VEVENT')) return null;
+			if (BIRTHDAY_CALENDAR.test(name)) return null;
+			if (ONLY.length && !ONLY.includes(name.toLowerCase())) entry.skipped = 'not in CALENDAR_NAMES';
 			else if (!ONLY.length && SKIP.test(name)) entry.skipped = 'birthdays or holidays';
 			if (entry.skipped) return entry;
 			try {
@@ -135,7 +143,116 @@ async function loadICloud(range) {
 			}
 			return entry;
 		})
-	);
+	).then((list) => list.filter(Boolean));
+}
+
+/* Birthdays from iCloud Contacts (CardDAV): iCloud doesn't serve its
+   Birthdays calendar over CalDAV, but every contact's BDAY is there. The
+   year is optional (Apple writes 1604 when it's unknown), so the age is
+   only given when it's known. Contacts change rarely: cached for hours. */
+let birthdayCache = null;
+let birthdayAt = 0;
+
+function unfold(vcard) {
+	return String(vcard).replace(/\r?\n[ \t]/g, '');
+}
+
+function vcardField(lines, key) {
+	const re = new RegExp(`^(?:item\\d+\\.)?${key}(;[^:]*)?:(.*)$`, 'i');
+	for (const line of lines) {
+		const m = re.exec(line);
+		if (m) return {params: m[1] || '', value: m[2].trim()};
+	}
+	return null;
+}
+
+function decode(text) {
+	return text.replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\n/gi, ' ').replace(/\\\\/g, '\\').trim();
+}
+
+/* "1988-10-17", "19881017", "--1017", "--10-17", "1604-10-17" → {year, month, day} */
+function parseBday(value) {
+	const v = value.replace(/T.*$/, '');
+	let m = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(v);
+	if (m) return {year: Number(m[1]) <= 1604 ? null : Number(m[1]), month: Number(m[2]), day: Number(m[3])};
+	m = /^--(\d{2})-?(\d{2})$/.exec(v);
+	if (m) return {year: null, month: Number(m[1]), day: Number(m[2])};
+	return null;
+}
+
+function ordinal(n) {
+	const s = ['th', 'st', 'nd', 'rd'];
+	const v = n % 100;
+	return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
+async function loadContacts() {
+	if (birthdayCache && Date.now() - birthdayAt < BIRTHDAY_CACHE_MS) return birthdayCache;
+	const client = await createDAVClient({
+		serverUrl: CONTACTS_SERVER,
+		credentials: {username: USERNAME, password: PASSWORD},
+		authMethod: 'Basic',
+		defaultAccountType: 'carddav',
+	});
+	const books = await client.fetchAddressBooks();
+	const people = [];
+	for (const book of books) {
+		const cards = await client.fetchVCards({addressBook: book});
+		for (const card of cards) {
+			if (!card.data) continue;
+			const lines = unfold(card.data).split(/\r?\n/);
+			const bday = vcardField(lines, 'BDAY');
+			if (!bday) continue;
+			const date = parseBday(bday.value);
+			if (!date) continue;
+			const fn = vcardField(lines, 'FN');
+			const name = fn ? decode(fn.value) : '';
+			if (!name) continue;
+			people.push({uid: vcardField(lines, 'UID')?.value || name, name, ...date});
+		}
+	}
+	birthdayCache = people;
+	birthdayAt = Date.now();
+	return people;
+}
+
+async function loadBirthdays(range) {
+	const entry = {name: 'Birthdays', source: 'Contacts', events: [], skipped: null, error: null};
+	try {
+		const people = await loadContacts();
+		const seen = new Set();
+		for (const p of people) {
+			for (let y = range.start.getFullYear(); y <= range.end.getFullYear(); y++) {
+				// 29 February falls on 28 February in other years.
+				const leap = p.month === 2 && p.day === 29 && new Date(y, 1, 29).getMonth() !== 1;
+				const day = new Date(y, p.month - 1, leap ? 28 : p.day);
+				if (day < range.start || day >= range.end) continue;
+				const key = `${p.name}-${day.getTime()}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				const age = p.year ? y - p.year : null;
+				const next = new Date(day);
+				next.setDate(day.getDate() + 1);
+				entry.events.push({
+					id: `bday-${p.uid}-${y}`,
+					title: age && age > 0 ? `${p.name}'s ${ordinal(age)} birthday` : `${p.name}'s birthday`,
+					start: day.toISOString(),
+					end: next.toISOString(),
+					location: null,
+					allDay: true,
+					out: false,
+					kind: 'birthday',
+					person: p.name,
+					age: age && age > 0 ? age : null,
+					calendar: 'Birthdays',
+				});
+			}
+		}
+	} catch (err) {
+		entry.error = explain(err);
+		console.warn('Calendar birthdays error:', entry.error);
+	}
+	return entry;
 }
 
 /* .ics feeds: subscribed, Outlook/Exchange or Google calendars. */
@@ -159,7 +276,7 @@ async function loadFeeds(range) {
 async function load() {
 	const range = windowRange();
 	let icloudError = null;
-	const [icloud, feeds] = await Promise.all([
+	const [icloud, feeds, birthdays] = await Promise.all([
 		ICLOUD
 			? loadICloud(range).catch((err) => {
 				icloudError = explain(err);
@@ -168,8 +285,9 @@ async function load() {
 			})
 			: [],
 		loadFeeds(range),
+		BIRTHDAYS ? loadBirthdays(range) : null,
 	]);
-	const sources = [...icloud, ...feeds];
+	const sources = [...icloud, ...feeds, ...(birthdays ? [birthdays] : [])];
 	if (icloudError && !feeds.length) throw Object.assign(new Error(icloudError), {explained: true});
 
 	// The same event can come back once per instance and per calendar copy.
@@ -221,6 +339,6 @@ router.get('/', async (_req, res) => {
 	}
 });
 
-router._test = {eventsFrom};
+router._test = {eventsFrom, parseBday, ordinal, unfold, vcardField};
 
 module.exports = router;

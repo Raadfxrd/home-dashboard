@@ -15,14 +15,14 @@ const detail = useDetailStore();
   <button
       v-if="plan"
       type="button"
-      class="wear press flex w-full items-center gap-4 rounded-md px-4 py-3 text-left"
+      class="wear glass press flex w-full items-center gap-4 rounded-md px-4 py-3 text-left"
       @click="detail.open('wear', plan, $event)"
   >
     <span class="flex shrink-0 -space-x-1.5">
       <span
           v-for="item in plan.outfit.items.slice(0, 3)"
           :key="item.key"
-          class="flex h-8 w-8 items-center justify-center rounded-full bg-line-soft text-ink ring-2 ring-[rgb(var(--raised-rgb))]"
+          class="flex h-8 w-8 items-center justify-center rounded-full bg-line-soft text-ink ring-2 ring-[rgb(40_40_44)]"
       >
         <AppIcon :size="16" :name="item.icon"/>
       </span>
@@ -37,14 +37,11 @@ const detail = useDetailStore();
 
 <style scoped>
 .wear {
-  background: rgb(var(--raised-rgb) / 0.7);
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
   transition: background-color 120ms var(--ease);
 }
 
 .wear:hover {
-  background: rgb(var(--raised-rgb) / 0.95);
+  background: var(--glass-fill-hover);
 }
 
 .wear:focus-visible {

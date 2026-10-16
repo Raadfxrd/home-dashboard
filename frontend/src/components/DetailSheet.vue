@@ -153,7 +153,7 @@ onUnmounted(() => {
           role="dialog"
           aria-modal="true"
           tabindex="-1"
-          class="sheet-panel relative flex max-h-[min(88vh,52rem)] w-full max-w-[34rem] flex-col overflow-hidden outline-none"
+          class="sheet-panel glass-float relative flex max-h-[min(88vh,52rem)] w-full max-w-[34rem] flex-col overflow-hidden outline-none"
       >
         <button
             type="button"
@@ -189,10 +189,7 @@ onUnmounted(() => {
 }
 
 .sheet-panel {
-  background: rgb(var(--raised-rgb));
-  border: 1px solid rgb(var(--line-soft-rgb));
   border-radius: 22px;
-  box-shadow: 0 30px 80px rgb(0 0 0 / 0.6);
   will-change: transform, opacity;
 }
 

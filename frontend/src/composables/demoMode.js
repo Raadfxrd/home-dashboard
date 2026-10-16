@@ -408,6 +408,7 @@ function demoCalendar() {
 		{id: 'e5', title: 'Gym', start: at(1, 18), end: at(1, 19), allDay: false, out: true, location: 'Basic-Fit, Haarlem', calendar: 'Personal'},
 		{id: 'e6', title: 'Family lunch', start: at(2, 12, 30), end: at(2, 14, 30), allDay: false, out: true, location: 'Zandvoort', calendar: 'Home'},
 		{id: 'e7', title: 'Sprint review', start: at(3, 14), end: at(3, 15), allDay: false, out: false, location: null, calendar: 'Work'},
+		{id: 'e9', title: "Frank Duncker's 38th birthday", start: at(1, 0), end: at(2, 0), allDay: true, out: false, location: null, kind: 'birthday', person: 'Frank Duncker', age: 38, calendar: 'Birthdays'},
 		{id: 'e8', title: 'Moving boxes', start: at(4, 0), end: at(5, 0), allDay: true, out: false, location: null, calendar: 'Home'},
 	];
 	const sources = [
@@ -415,7 +416,7 @@ function demoCalendar() {
 		{name: 'Personal', source: 'iCloud', count: 4, skipped: null, error: null},
 		{name: 'Work', source: 'feed', count: 2, skipped: null, error: null},
 		{name: 'School', source: 'feed', count: 1, skipped: null, error: null},
-		{name: 'Birthdays', source: 'iCloud', count: 0, skipped: 'birthdays or holidays', error: null},
+		{name: 'Birthdays', source: 'Contacts', count: 1, skipped: null, error: null},
 	];
 	return {configured: true, online: true, calendars: ['Home', 'Work', 'Personal', 'School'], sources, events, error: null};
 }

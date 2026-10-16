@@ -97,17 +97,13 @@ function method(s) {
 </template>
 
 <style scoped>
+/* Glass comes from .panel. */
 .np-card {
-  background: rgb(var(--raised-rgb) / 0.82);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  transition: background-color 120ms var(--ease), transform 140ms var(--ease);
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .np-card {
-    background: rgb(var(--raised-rgb));
-    backdrop-filter: none;
-  }
+.np-card:hover {
+  background: var(--glass-fill-hover);
 }
 
 .np-enter-active,
