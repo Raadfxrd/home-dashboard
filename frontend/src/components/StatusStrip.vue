@@ -11,6 +11,7 @@ const props = defineProps({
   status: {type: Object, required: true},
   containers: {type: Object, default: null},
   log: {type: Array, default: () => []},
+  calendar: {type: Object, default: null},
   loading: {type: Boolean, default: false},
 });
 
@@ -86,6 +87,31 @@ const containerRow = computed(() => {
   };
 });
 
+/* Which calendars the agenda reads, with this week's count, and the ones it
+   leaves out. Calendars on your Mac that aren't here live outside iCloud
+   (subscribed, Outlook, Google) and need their .ics link instead. */
+const calendarRow = computed(() => {
+  const c = props.calendar;
+  const base = {key: 'calendar', label: 'Calendar', title: 'Calendars'};
+  if (!c?.configured) {
+    return {...base, tone: 'off', text: 'not connected', items: [], empty: 'Add ICLOUD_USERNAME and an app-specific ICLOUD_APP_PASSWORD to .env.'};
+  }
+  const sources = c.sources || (c.calendars || []).map((name) => ({name, source: 'iCloud', count: null}));
+  const read = sources.filter((s) => !s.skipped && !s.error);
+  const failed = sources.filter((s) => s.error);
+  return {
+    ...base,
+    tone: c.error && !read.length ? 'fault' : c.error || failed.length ? 'warn' : 'live',
+    text: read.length ? String(read.length) : c.error ? 'error' : '0',
+    items: [
+      ...read.map((s) => ({id: `r-${s.name}`, name: s.name, tone: 'live', note: [s.source === 'feed' ? 'feed' : '', s.count != null ? `${s.count} this week` : ''].filter(Boolean).join(' · ')})),
+      ...failed.map((s) => ({id: `f-${s.name}`, name: s.name, tone: 'fault', note: 'unreadable', detail: s.error})),
+      ...sources.filter((s) => s.skipped).map((s) => ({id: `s-${s.name}`, name: s.name, tone: 'off', note: s.skipped})),
+    ],
+    empty: c.error || (sources.length ? '' : 'No calendars found.'),
+  };
+});
+
 const agoFmt = new Intl.RelativeTimeFormat('en', {numeric: 'auto'});
 function ago(t) {
   const s = Math.round((t - Date.now()) / 1000);
@@ -97,7 +123,7 @@ function ago(t) {
 
 const SOURCE_NAMES = {
   jellyfin: 'Jellyfin', weather: 'Weather', nas: 'NAS', prowlarr: 'Prowlarr', qbittorrent: 'qBittorrent',
-  nzbget: 'NZBGet', sonarr: 'Sonarr', radarr: 'Radarr', docker: 'Docker', server: 'Dashboard',
+  nzbget: 'NZBGet', sonarr: 'Sonarr', radarr: 'Radarr', docker: 'Docker', calendar: 'Calendar', server: 'Dashboard',
 };
 
 /* The log's dot says how recent and how bad: red for an error in the last
@@ -162,6 +188,7 @@ const rows = computed(() => [
     source: nas.value.configured && nas.value.source ? `Read over ${String(nas.value.source).toUpperCase()}` : '',
   },
   containerRow.value,
+  calendarRow.value,
   logRow.value,
 ]);
 

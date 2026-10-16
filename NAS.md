@@ -28,6 +28,9 @@ Lives in `/volume1/Projects/home-dashboard` on the Asustor (the `Projects` share
   App-Specific Passwords, then set `ICLOUD_USERNAME` (your Apple ID email) and
   `ICLOUD_APP_PASSWORD` in `.env`. Optionally limit it with
   `CALENDAR_NAMES=Home,Work`. Events with a physical location count as "out".
+  Subscribed calendars and Outlook/Google calendars aren't served by iCloud;
+  add their .ics links as `CALENDAR_ICS_URLS=School|webcal://…,Work|https://…`.
+  The Calendar entry in the bottom bar lists what is being read.
 
 ## Open it
 

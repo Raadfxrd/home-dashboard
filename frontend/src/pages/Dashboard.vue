@@ -258,6 +258,7 @@ onUnmounted(() => {
               :status="homeStore.serviceStatus"
               :containers="homeStore.containers"
               :log="homeStore.logEntries"
+              :calendar="homeStore.calendar"
               :loading="!homeStore.statusLoaded"
               @clear-log="homeStore.clearLog()"
           />

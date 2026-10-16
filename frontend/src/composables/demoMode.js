@@ -410,7 +410,14 @@ function demoCalendar() {
 		{id: 'e7', title: 'Sprint review', start: at(3, 14), end: at(3, 15), allDay: false, out: false, location: null, calendar: 'Work'},
 		{id: 'e8', title: 'Moving boxes', start: at(4, 0), end: at(5, 0), allDay: true, out: false, location: null, calendar: 'Home'},
 	];
-	return {configured: true, online: true, calendars: ['Home', 'Work', 'Personal', 'School'], events, error: null};
+	const sources = [
+		{name: 'Home', source: 'iCloud', count: 3, skipped: null, error: null},
+		{name: 'Personal', source: 'iCloud', count: 4, skipped: null, error: null},
+		{name: 'Work', source: 'feed', count: 2, skipped: null, error: null},
+		{name: 'School', source: 'feed', count: 1, skipped: null, error: null},
+		{name: 'Birthdays', source: 'iCloud', count: 0, skipped: 'birthdays or holidays', error: null},
+	];
+	return {configured: true, online: true, calendars: ['Home', 'Work', 'Personal', 'School'], sources, events, error: null};
 }
 
 function demoItem(url) {
