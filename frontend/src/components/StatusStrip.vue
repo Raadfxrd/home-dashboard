@@ -9,8 +9,12 @@ import {computed, onMounted, onUnmounted, ref} from 'vue';
  */
 const props = defineProps({
   status: {type: Object, required: true},
+  containers: {type: Object, default: null},
+  log: {type: Array, default: () => []},
   loading: {type: Boolean, default: false},
 });
+
+const emit = defineEmits(['clear-log']);
 
 const TONE = {
   live: 'dot dot-live',
@@ -44,6 +48,82 @@ function percent(value) {
 }
 
 const nas = computed(() => props.status.nasMetrics || {});
+
+function megabytes(bytes) {
+  if (!Number.isFinite(bytes)) return '';
+  const mb = bytes / 1048576;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+/* "Exited (0) 2 hours ago" → "stopped 2 hours ago" */
+function stoppedText(status = '') {
+  const ago = /\)\s*(.+)$/.exec(status)?.[1];
+  return ago ? `stopped ${ago}` : 'stopped';
+}
+
+const containerRow = computed(() => {
+  const c = props.containers;
+  const base = {key: 'containers', label: 'Containers', title: 'Containers'};
+  if (!c?.configured) {
+    return {...base, tone: 'off', text: 'not connected', items: [], empty: 'Mount the Docker socket to list containers (deploy.sh does this).'};
+  }
+  if (!c.online) return {...base, tone: 'fault', text: 'unavailable', items: [], empty: c.error || 'Docker did not answer.'};
+  const unhealthy = c.items.some((i) => i.health === 'unhealthy');
+  const stopped = c.total - c.running;
+  return {
+    ...base,
+    tone: unhealthy ? 'fault' : stopped ? 'warn' : 'live',
+    text: `${c.running}/${c.total}`,
+    items: c.items.map((i) => ({
+      id: i.id,
+      name: i.name,
+      tone: i.state !== 'running' ? 'warn' : i.health === 'unhealthy' ? 'fault' : 'live',
+      note: i.state !== 'running'
+        ? stoppedText(i.status)
+        : [megabytes(i.memoryBytes), Number.isFinite(i.cpuPercent) ? `${i.cpuPercent}%` : ''].filter(Boolean).join('  '),
+    })),
+    empty: c.items.length ? '' : 'No containers.',
+  };
+});
+
+const agoFmt = new Intl.RelativeTimeFormat('en', {numeric: 'auto'});
+function ago(t) {
+  const s = Math.round((t - Date.now()) / 1000);
+  if (s > -60) return 'just now';
+  if (s > -3600) return agoFmt.format(Math.round(s / 60), 'minute');
+  if (s > -86400) return agoFmt.format(Math.round(s / 3600), 'hour');
+  return agoFmt.format(Math.round(s / 86400), 'day');
+}
+
+const SOURCE_NAMES = {
+  jellyfin: 'Jellyfin', weather: 'Weather', nas: 'NAS', prowlarr: 'Prowlarr', qbittorrent: 'qBittorrent',
+  nzbget: 'NZBGet', sonarr: 'Sonarr', radarr: 'Radarr', docker: 'Docker', server: 'Dashboard',
+};
+
+/* The log's dot says how recent and how bad: red for an error in the last
+   hour, orange for a recent warning, green when the last hour was clean. */
+const logRow = computed(() => {
+  const hourAgo = Date.now() - 3600000;
+  const recent = props.log.filter((e) => e.lastAt >= hourAgo);
+  const tone = recent.some((e) => e.level === 'error') ? 'fault' : recent.length ? 'warn' : 'live';
+  return {
+    key: 'log',
+    label: 'Log',
+    title: 'Recent problems',
+    tone,
+    text: props.log.length ? String(props.log.length) : 'clear',
+    wide: true,
+    items: props.log.map((e) => ({
+      id: e.id,
+      name: SOURCE_NAMES[e.source] || e.source,
+      tone: e.level === 'error' ? 'fault' : 'warn',
+      note: `${ago(e.lastAt)}${e.count > 1 ? `  ×${e.count}` : ''}`,
+      detail: e.message,
+    })),
+    empty: props.log.length ? '' : 'Nothing has gone wrong since the dashboard started.',
+    action: props.log.length ? {label: 'Clear', run: () => emit('clear-log')} : null,
+  };
+});
 
 const rows = computed(() => [
   {
@@ -81,6 +161,8 @@ const rows = computed(() => [
         : 'Set NAS_METRICS_MODE=snmp and the SNMP host in .env.',
     source: nas.value.configured && nas.value.source ? `Read over ${String(nas.value.source).toUpperCase()}` : '',
   },
+  containerRow.value,
+  logRow.value,
 ]);
 
 const open = ref(null);
@@ -144,7 +226,7 @@ onUnmounted(() => {
 
 <template>
   <div v-if="loading" class="flex flex-wrap items-center gap-x-3 gap-y-2" aria-busy="true" aria-label="Checking services">
-    <span v-for="w in [92, 140, 84]" :key="w" class="flex items-center gap-2.5 px-2.5 py-2" aria-hidden="true">
+    <span v-for="w in [92, 140, 84, 100, 48]" :key="w" class="flex items-center gap-2.5 px-2.5 py-2" aria-hidden="true">
       <span class="skeleton h-2 w-2 rounded-full"></span>
       <span class="skeleton h-3" :style="{width: `${w}px`}"></span>
     </span>
@@ -176,23 +258,35 @@ onUnmounted(() => {
             :id="`status-${row.key}`"
             role="dialog"
             :aria-label="row.title"
-            class="status-pop absolute bottom-full z-40 mb-2 w-[min(19rem,calc(100vw-2.5rem))] p-1.5"
-            :class="index === rows.length - 1 ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left'"
+            class="status-pop absolute bottom-full z-40 mb-2 p-1.5"
+            :class="[
+              row.wide ? 'w-[min(26rem,calc(100vw-2.5rem))]' : 'w-[min(19rem,calc(100vw-2.5rem))]',
+              index >= rows.length - 2 ? 'right-0 origin-bottom-right' : 'left-0 origin-bottom-left',
+            ]"
         >
-          <div class="flex items-baseline justify-between gap-3 px-2.5 pb-1.5 pt-2">
+          <div class="flex items-center justify-between gap-3 px-2.5 pb-1.5 pt-2">
             <span class="text-[0.875rem] font-semibold text-ink">{{ row.title }}</span>
-            <span class="t-note">{{ row.text }}</span>
+            <button
+                v-if="row.action"
+                type="button"
+                class="press rounded-md px-2 py-1 text-[0.75rem] text-dim hover:bg-line-soft hover:text-ink"
+                @click="row.action.run()"
+            >{{ row.action.label }}</button>
+            <span v-else class="t-note">{{ row.text }}</span>
           </div>
 
           <ul v-if="row.items.length" class="max-h-72 overflow-y-auto">
             <li
                 v-for="item in row.items"
                 :key="item.id"
-                class="flex items-center gap-2.5 rounded-md px-2.5 py-2"
+                class="rounded-md px-2.5 py-2"
             >
-              <span :class="TONE[item.tone]"></span>
-              <span class="min-w-0 flex-1 truncate text-[0.8125rem] text-ink">{{ item.name }}</span>
-              <span v-if="item.note" class="t-note max-w-[55%] truncate text-right" :title="item.note">{{ item.note }}</span>
+              <span class="flex items-center gap-2.5">
+                <span :class="TONE[item.tone]"></span>
+                <span class="min-w-0 flex-1 truncate text-[0.8125rem] text-ink">{{ item.name }}</span>
+                <span v-if="item.note" class="t-note max-w-[55%] truncate whitespace-pre text-right tabular-nums" :title="item.note">{{ item.note }}</span>
+              </span>
+              <span v-if="item.detail" class="log-detail mt-1 block pl-[1.125rem] text-[0.75rem] leading-snug text-dim" :title="item.detail">{{ item.detail }}</span>
             </li>
           </ul>
 
@@ -219,6 +313,14 @@ onUnmounted(() => {
   border: 1px solid rgb(var(--line-rgb));
   border-radius: var(--r-md);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
+}
+
+.log-detail {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .status-trigger:focus-visible {

@@ -9,6 +9,11 @@ if [ ! -f .env ]; then
   exit 1
 fi
 
+# The dashboard reads the container list through the Docker socket; give it
+# the socket's group so it can, without running as root.
+DOCKER_GID=$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 0)
+export DOCKER_GID
+
 if docker compose version >/dev/null 2>&1; then
   DC="docker compose"
 else

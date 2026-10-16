@@ -15,6 +15,18 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 	const suggestedRequest = ref(null);
 	const recommendedShowsRequest = ref(null);
 	const recentRequest = ref(null);
+	const nowPlaying = ref([]);
+
+	/* Who's watching right now. Quietly empty when Jellyfin can't be reached;
+	   the bottom bar's log already says why. */
+	async function fetchNowPlaying() {
+		try {
+			const payload = await get('/jellyfin/now-playing');
+			nowPlaying.value = payload?.sessions || [];
+		} catch {
+			nowPlaying.value = [];
+		}
+	}
 
 	async function fetchSuggestedWatches() {
 		if (suggestedRequest.value) return suggestedRequest.value;
@@ -98,5 +110,7 @@ export const useJellyfinStore = defineStore('jellyfin', () => {
 		fetchSuggestedWatches,
 		fetchRecommendedShows,
 		fetchRecentlyAdded,
+		nowPlaying,
+		fetchNowPlaying,
 	};
 });

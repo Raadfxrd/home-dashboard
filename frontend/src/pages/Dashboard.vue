@@ -7,6 +7,11 @@ import DownloadList from '../components/DownloadList.vue';
 import MediaRail from '../components/MediaRail.vue';
 import StatusStrip from '../components/StatusStrip.vue';
 import AppIcon from '../components/AppIcon.vue';
+import NowPlaying from '../components/NowPlaying.vue';
+import ComingUp from '../components/ComingUp.vue';
+import IdleScreen from '../components/IdleScreen.vue';
+import SegmentedControl from '../components/SegmentedControl.vue';
+import {useIdle} from '../composables/useIdle.js';
 import {useWeatherStore} from '../stores/useWeatherStore.js';
 import {useHomeStore} from '../stores/useHomeStore.js';
 import {useJellyfinStore} from '../stores/useJellyfinStore.js';
@@ -28,16 +33,50 @@ const jellyfinKey = ref(0);
 
 
 let clockTimer = null;
-let statusTimer = null;
-let jellyfinTimer = null;
-let weatherTimer = null;
-let historyTimer = null;
+let scheduleTimer = null;
 
-/* The 1-hour view gains a sample every 10 s; the 24-hour one every 5 min. */
+const {idle, after: idleAfter, wake} = useIdle();
+
+/* Everything that refreshes, with how often while someone is looking and
+   while the screen is idle (null: not at all, because the idle screen
+   doesn't show it). On waking, anything overdue refreshes at once. */
+const tasks = [
+  {run: () => homeStore.fetchServiceStatus(), active: POLL_MS, idle: 60000},
+  {run: () => homeStore.fetchSystemHistory(), active: () => (homeStore.historyRange === '24h' ? 60000 : 15000), idle: null},
+  {run: () => jellyfinStore.fetchNowPlaying(), active: 10000, idle: null},
+  {run: () => homeStore.fetchContainers(), active: 20000, idle: null},
+  {run: () => homeStore.fetchLog(), active: 30000, idle: 300000},
+  {run: () => homeStore.fetchUpcoming(), active: 30 * 60000, idle: null},
+  {run: refreshJellyfin, active: JELLYFIN_REFRESH_MS, idle: null},
+  {
+    run: () => {
+      weatherStore.fetchAmsterdamWeather();
+      weatherStore.fetchOutlook();
+    },
+    active: WEATHER_REFRESH_MS,
+    idle: WEATHER_REFRESH_MS,
+  },
+].map((task) => ({...task, last: 0}));
+
+function tick() {
+  const now = Date.now();
+  for (const task of tasks) {
+    const every = idle.value ? task.idle : typeof task.active === 'function' ? task.active() : task.active;
+    if (every && now - task.last >= every) {
+      task.last = now;
+      task.run();
+    }
+  }
+}
+
+watch(idle, (isIdle) => {
+  if (!isIdle) tick();
+});
+
+/* A new range needs its history now, not at the next tick. */
 function pollHistory() {
-  clearInterval(historyTimer);
+  tasks[1].last = Date.now();
   homeStore.fetchSystemHistory();
-  historyTimer = setInterval(() => homeStore.fetchSystemHistory(), homeStore.historyRange === '24h' ? 60000 : 15000);
 }
 
 function setRange(range) {
@@ -94,27 +133,13 @@ watch(coords, (val) => {
 onMounted(() => {
   updateClock();
   clockTimer = setInterval(updateClock, 1000);
-
-  weatherStore.fetchAmsterdamWeather();
-  weatherStore.fetchOutlook();
-  homeStore.fetchServiceStatus();
-  pollHistory();
-  refreshJellyfin();
-
-  statusTimer = setInterval(() => homeStore.fetchServiceStatus(), POLL_MS);
-  jellyfinTimer = setInterval(refreshJellyfin, JELLYFIN_REFRESH_MS);
-  weatherTimer = setInterval(() => {
-    weatherStore.fetchAmsterdamWeather();
-    weatherStore.fetchOutlook();
-  }, WEATHER_REFRESH_MS);
+  tick();
+  scheduleTimer = setInterval(tick, 1000);
 });
 
 onUnmounted(() => {
   clearInterval(clockTimer);
-  clearInterval(statusTimer);
-  clearInterval(jellyfinTimer);
-  clearInterval(weatherTimer);
-  clearInterval(historyTimer);
+  clearInterval(scheduleTimer);
 });
 </script>
 
@@ -160,9 +185,23 @@ onUnmounted(() => {
           />
         </div>
 
-        <div class="xl:col-span-7">
-          <DownloadList :activity="homeStore.serviceStatus.downloadActivity" :loading="!homeStore.statusLoaded"/>
+        <!-- On wide screens the System card sets this row's height and the
+             download list fills exactly that, scrolling if it is longer. -->
+        <div class="min-h-[18rem] xl:relative xl:col-span-7">
+          <div class="h-full xl:absolute xl:inset-0">
+            <DownloadList :activity="homeStore.serviceStatus.downloadActivity" :loading="!homeStore.statusLoaded"/>
+          </div>
         </div>
+
+        <div class="xl:col-span-12">
+          <ComingUp :data="homeStore.upcoming" :loading="!homeStore.upcoming"/>
+        </div>
+
+        <Transition name="slot">
+          <div v-if="jellyfinStore.nowPlaying.length" class="xl:col-span-12">
+            <NowPlaying :sessions="jellyfinStore.nowPlaying"/>
+          </div>
+        </Transition>
 
         <div class="xl:col-span-12">
           <section class="settle">
@@ -196,9 +235,64 @@ onUnmounted(() => {
 
     <footer class="border-t border-line-soft px-5 py-5 md:px-9">
       <div class="mx-auto max-w-[1560px]">
-        <StatusStrip :status="homeStore.serviceStatus" :loading="!homeStore.statusLoaded"/>
+        <div class="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <StatusStrip
+              :status="homeStore.serviceStatus"
+              :containers="homeStore.containers"
+              :log="homeStore.logEntries"
+              :loading="!homeStore.statusLoaded"
+              @clear-log="homeStore.clearLog()"
+          />
+          <div class="flex items-center gap-2.5 t-note">
+            <span aria-hidden="true">Idle screen after</span>
+            <SegmentedControl
+                v-model="idleAfter"
+                :options="[{value: '2', label: '2 min'}, {value: '5', label: '5 min'}, {value: '10', label: '10 min'}, {value: 'off', label: 'Off'}]"
+                size="sm"
+                label="Idle screen after"
+            />
+          </div>
+        </div>
       </div>
     </footer>
+
+    <Transition name="idle">
+      <IdleScreen
+          v-if="idle"
+          :clock="clock"
+          :date="today"
+          :here="weatherStore.amsterdamWeather"
+          :outlook="weatherStore.outlook"
+          @wake="wake"
+      />
+    </Transition>
   </div>
 </template>
+
+<style scoped>
+/* Eases into the idle screen slowly; snaps back quickly when touched. */
+.idle-enter-active {
+  transition: opacity 1.2s var(--ease);
+}
+
+.idle-leave-active {
+  transition: opacity 220ms var(--ease);
+}
+
+.idle-enter-from,
+.idle-leave-to {
+  opacity: 0;
+}
+
+.slot-enter-active,
+.slot-leave-active {
+  transition: opacity 320ms var(--ease), transform 320ms var(--ease);
+}
+
+.slot-enter-from,
+.slot-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+}
+</style>
 

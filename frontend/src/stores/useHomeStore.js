@@ -1,6 +1,6 @@
 import {defineStore} from 'pinia';
 import {ref} from 'vue';
-import {get} from '../composables/useApi.js';
+import {get, post} from '../composables/useApi.js';
 
 export const useHomeStore = defineStore('home', () => {
 	const serviceStatusRequest = ref(null);
@@ -8,6 +8,10 @@ export const useHomeStore = defineStore('home', () => {
 	// False until the first status answer (or failure) arrives, so the page
 	// shows placeholders instead of "not configured" on load.
 	const statusLoaded = ref(false);
+	const containers = ref({configured: false, online: false, total: 0, running: 0, items: [], error: null});
+	const logEntries = ref([]);
+	const logClearedAt = ref(0);
+	const upcoming = ref(null);
 	const historyRange = ref('1h');
 	const serviceStatus = ref({
 		prowlarr: {configured: false, online: false, statusCode: null, latencyMs: null, error: 'Not configured'},
@@ -102,7 +106,51 @@ export const useHomeStore = defineStore('home', () => {
 		}
 	}
 
+	async function fetchContainers() {
+		try {
+			containers.value = await get('/containers');
+		} catch (err) {
+			containers.value = {...containers.value, online: false, error: err.message};
+		}
+	}
+
+	async function fetchLog() {
+		try {
+			const payload = await get('/logs');
+			logEntries.value = payload?.entries || [];
+			logClearedAt.value = payload?.clearedAt || 0;
+		} catch {
+			// The log itself failing to load isn't worth a log line.
+		}
+	}
+
+	async function clearLog() {
+		const previous = logEntries.value;
+		logEntries.value = [];
+		try {
+			await post('/logs/clear');
+		} catch {
+			logEntries.value = previous;
+		}
+	}
+
+	async function fetchUpcoming() {
+		try {
+			upcoming.value = await get('/upcoming');
+		} catch {
+			upcoming.value = upcoming.value || {configured: {sonarr: false, radarr: false}, items: [], failed: []};
+		}
+	}
+
 	return {
+		containers,
+		logEntries,
+		logClearedAt,
+		upcoming,
+		fetchContainers,
+		fetchLog,
+		clearLog,
+		fetchUpcoming,
 		statusLoaded,
 		systemHistory,
 		historyRange,

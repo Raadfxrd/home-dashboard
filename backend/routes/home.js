@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const snmp = require('net-snmp');
+const issueLog = require('../lib/issueLog');
 
 axios.defaults.httpAgent = new http.Agent({keepAlive: false, maxSockets: 32});
 axios.defaults.httpsAgent = new https.Agent({keepAlive: false, maxSockets: 32});
@@ -52,6 +53,12 @@ const nasNetworkSnapshot = {
 };
 
 function logNasMetrics(event, details = {}, level = 'info') {
+	// Failures always reach the dashboard's log, even with NAS logging off
+	// (without filling the container's output every 10 seconds).
+	if (level === 'error' && !NAS_METRICS_LOG_ENABLED) {
+		issueLog.record('error', ['[NAS]', event, details?.message || '', details?.host ? `(${details.host})` : '']);
+		return;
+	}
 	if (!NAS_METRICS_LOG_ENABLED) return;
 	if (level === 'debug' && !NAS_METRICS_LOG_VERBOSE) return;
 	const now = new Date();

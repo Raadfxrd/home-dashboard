@@ -11,12 +11,18 @@ const envCandidates = [
 const envPath = envCandidates.find((candidate) => fs.existsSync(candidate));
 dotenv.config(envPath ? {path: envPath} : undefined);
 
+const issueLog = require('./lib/issueLog');
+// Before anything else logs, so every warning and error is collected.
+issueLog.install();
+
 const express = require('express');
 const cors = require('cors');
 
 const weatherRoutes = require('./routes/weather');
 const homeRoutes = require('./routes/home');
 const jellyfinRoutes = require('./routes/jellyfin');
+const upcomingRoutes = require('./routes/upcoming');
+const containerRoutes = require('./routes/containers');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -28,9 +34,20 @@ app.get('/api/health', (_req, res) => {
 	res.json({status: 'ok', timestamp: new Date().toISOString()});
 });
 
+// What went wrong recently, for the log in the dashboard's bottom bar.
+app.get('/api/logs', (_req, res) => {
+	res.json({entries: issueLog.list(), clearedAt: issueLog.clearedAt()});
+});
+app.post('/api/logs/clear', (_req, res) => {
+	issueLog.clear();
+	res.json({ok: true});
+});
+
 app.use('/api/weather', weatherRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/jellyfin', jellyfinRoutes);
+app.use('/api/upcoming', upcomingRoutes);
+app.use('/api/containers', containerRoutes);
 
 // In the Docker image the built frontend sits next to the server, so one
 // container serves both. In dev, Vite serves the frontend and this is skipped.

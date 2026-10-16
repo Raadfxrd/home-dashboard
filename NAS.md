@@ -17,6 +17,13 @@ Lives in `/volume1/Projects/home-dashboard` on the Asustor (the `Projects` share
    The first build takes a while on the NAS. After that the containers show up in Portainer
    and restart on their own after a reboot.
 
+## Optional extras
+
+- **Coming up** (this week's episodes and films): add `SONARR_URL`, `SONARR_API_KEY`,
+  `RADARR_URL` and `RADARR_API_KEY` to `.env`. Keys are under Settings › General.
+- **Containers** in the bottom bar read the Docker socket, mounted read-only.
+  `deploy.sh` gives the dashboard the socket's group automatically.
+
 ## Open it
 
 - At home: http://192.168.2.4:3000

@@ -301,12 +301,82 @@ function systemHistory(range) {
 	};
 }
 
+/* Now playing, this week's releases, containers and the log, for demo mode.
+   ?idle=1 shortens the idle timeout to 5 seconds to preview idle mode. */
+function demoNowPlaying() {
+	const show = SHOWS[1] || SUGGESTED[0];
+	return {configured: true, sessions: [
+		{id: 'np1', user: 'Borys', device: 'Apple TV', client: 'Infuse', title: show.title, subtitle: 'S02E05 · The Return', poster: show.poster, progress: 37.5, positionSeconds: 1290, runtimeSeconds: 3440, paused: false, playMethod: 'DirectPlay', ip: '192.168.2.3', network: 'local'},
+		{id: 'np2', user: 'Emile', device: 'iPhone', client: 'Swiftfin', title: SUGGESTED[2].title, subtitle: '2024', poster: SUGGESTED[2].poster, progress: 81, positionSeconds: 5600, runtimeSeconds: 6900, paused: true, playMethod: 'Transcode', ip: '100.103.201.24', network: 'tailscale'},
+	]};
+}
+
+function demoUpcoming() {
+	const day = (n, h = 21, m = 0) => {
+		const d = new Date();
+		d.setDate(d.getDate() + n);
+		d.setHours(h, m, 0, 0);
+		return d.toISOString();
+	};
+	const p = (i) => (LIBRARY[i] || LIBRARY[0]).poster;
+	const items = [
+		{id: 'u1', kind: 'episode', title: 'Low Tide', subtitle: 'S02E06 · Slack Water', at: day(0, 21), allDay: false, hasFile: false, poster: p(1)},
+		{id: 'u2', kind: 'episode', title: 'Northbound', subtitle: 'S01E04 · Crossing', at: day(0, 3), allDay: false, hasFile: true, poster: p(2)},
+		{id: 'u3', kind: 'movie', title: 'Paper Cities', subtitle: 'Digital release · 2026', at: day(1, 0), allDay: true, hasFile: false, poster: p(3)},
+		{id: 'u4', kind: 'episode', title: 'The Cartographer', subtitle: 'S03E01 · New Ground', at: day(2, 22), allDay: false, hasFile: false, poster: p(4)},
+		{id: 'u5', kind: 'episode', title: 'Station Eleven Road', subtitle: 'S01E08 · Signal', at: day(4, 20, 30), allDay: false, hasFile: false, poster: p(5)},
+		{id: 'u6', kind: 'movie', title: 'The Long Field', subtitle: 'In cinemas · 2026', at: day(5, 0), allDay: true, hasFile: false, poster: p(6)},
+	];
+	return {configured: {sonarr: true, radarr: true}, items, failed: [], days: 7};
+}
+
+function demoContainers() {
+	const mb = (n) => Math.round(n * 1048576);
+	const items = [
+		['Jackett', 'exited', 'Exited (0) 2 hours ago', null, null],
+		['FlareSolverr', 'running', 'Up 3 days', 5.8, 0.0],
+		['home-dashboard', 'running', 'Up 2 hours (healthy)', 29.3, 2.6],
+		['Jellyfin', 'running', 'Up 3 days', 140.8, 0.2],
+		['LibreSpeed', 'running', 'Up 3 days', 5.7, 0],
+		['PortainerCE', 'running', 'Up 3 days', 31.6, 0.1],
+		['Prowlarr', 'running', 'Up 3 days', 119.9, 3.2],
+		['qBittorrent', 'running', 'Up 3 days', 15.9, wander(11, 18, 8, 9)],
+		['Radarr', 'running', 'Up 3 days', 77.9, 0.2],
+		['Sonarr', 'running', 'Up 3 days', 148.2, 0.1],
+		['TailScale', 'running', 'Up 3 days', 22.2, 0.7],
+	].map(([name, state, status, mem, cpu], i) => ({
+		id: `c${i}`, name, image: name.toLowerCase(), state, status,
+		health: status.includes('healthy') ? 'healthy' : null,
+		memoryBytes: mem == null ? null : mb(mem), cpuPercent: cpu == null ? null : Math.round(cpu * 10) / 10,
+	}));
+	return {configured: true, online: true, total: items.length, running: items.filter((c) => c.state === 'running').length, items, error: null};
+}
+
+let demoLogCleared = false;
+function demoLog() {
+	if (demoLogCleared) return {entries: [], clearedAt: Date.now()};
+	const ago = (min) => Date.now() - min * 60000;
+	return {clearedAt: 0, entries: [
+		{id: 3, level: 'error', source: 'prowlarr', message: 'Indexer F: Query limit reached (HTTP 429)', count: 14, firstAt: ago(95), lastAt: ago(2)},
+		{id: 2, level: 'warning', source: 'weather', message: 'Weather rain (3h) error, using the 2h feed: timeout of 8000ms exceeded', count: 1, firstAt: ago(38), lastAt: ago(38)},
+		{id: 1, level: 'error', source: 'jellyfin', message: 'Jellyfin recent error: connect ECONNREFUSED 192.168.2.4:28096 (ECONNREFUSED)', count: 3, firstAt: ago(240), lastAt: ago(212)},
+	]};
+}
+
 function match(url = '') {
 	const path = url.split('?')[0];
 	if (path === '/weather') return WEATHER.Amsterdam;
 	if (path === '/weather/current') return WEATHER.local;
 	if (path === '/weather/outlook') return demoOutlook();
 	if (path === '/home/services-status') return servicesStatus();
+	if (path === '/jellyfin/now-playing') return demoNowPlaying();
+	if (path === '/upcoming') return demoUpcoming();
+	if (path === '/containers') return demoContainers();
+	if (path === '/logs') return demoLog();
+	if (path === '/logs/clear') {
+		demoLogCleared = true;
+		return {ok: true};
+	}
 	if (path === '/home/system-history') return systemHistory(url.includes('range=24h') ? '24h' : '1h');
 	if (path === '/jellyfin/suggested') return url.includes('type=shows') ? SHOWS : SUGGESTED;
 	if (path === '/jellyfin/recent') return RECENT;

@@ -14,6 +14,11 @@ services:
       NAS_USAGE_PATH: /mnt/nas
     volumes:
       - ./:/mnt/nas:ro
+      # Read-only, for the container list in the bottom bar. Only GET
+      # requests are made; deploy.sh fills in the socket's group.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    group_add:
+      - "${DOCKER_GID:-0}"
     ports:
       - "${DASHBOARD_PORT:-3000}:3001"
     restart: unless-stopped

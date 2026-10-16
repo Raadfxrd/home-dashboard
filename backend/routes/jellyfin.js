@@ -556,6 +556,67 @@ router.get('/recent', async (_req, res) => {
 	}
 });
 
+/* Who is watching what right now. Each session says how it is being
+   played (direct or transcoded) and where it comes from, so a stream that
+   runs through Tailscale (100.x addresses) instead of the local network is
+   easy to spot. */
+function describeAddress(address = '') {
+	const ip = String(address).replace(/^::ffff:/, '').split(':')[0];
+	if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return {ip, network: 'tailscale'};
+	if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.)/.test(ip)) return {ip, network: 'local'};
+	return {ip, network: ip ? 'remote' : null};
+}
+
+function episodeCode(item) {
+	if (item.Type !== 'Episode') return null;
+	const s = Number(item.ParentIndexNumber);
+	const e = Number(item.IndexNumber);
+	if (!Number.isFinite(s) || !Number.isFinite(e)) return null;
+	return `S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`;
+}
+
+router.get('/now-playing', async (_req, res) => {
+	if (!JELLYFIN_API_KEY) {
+		return res.json({configured: false, sessions: []});
+	}
+	try {
+		const response = await axios.get(`${JELLYFIN_URL}/Sessions`, {
+			headers: jellyfinHeaders(),
+			params: {activeWithinSeconds: 960},
+			timeout: 8000,
+		});
+		const sessions = (response.data || [])
+			.filter((session) => session.NowPlayingItem)
+			.map((session) => {
+				const item = session.NowPlayingItem;
+				const state = session.PlayState || {};
+				const runtime = Number(item.RunTimeTicks) || 0;
+				const position = Number(state.PositionTicks) || 0;
+				const isEpisode = item.Type === 'Episode';
+				return {
+					id: session.Id,
+					user: session.UserName || null,
+					device: session.DeviceName || null,
+					client: session.Client || null,
+					title: isEpisode ? item.SeriesName || item.Name : item.Name,
+					subtitle: isEpisode ? [episodeCode(item), item.Name].filter(Boolean).join(' · ') : item.ProductionYear ? String(item.ProductionYear) : null,
+					poster: buildPosterUrl(isEpisode && item.SeriesId ? item.SeriesId : item.Id),
+					url: buildDetailsUrl(item.Id),
+					progress: runtime > 0 ? Math.min(100, Math.round((position / runtime) * 1000) / 10) : 0,
+					positionSeconds: Math.round(position / 1e7),
+					runtimeSeconds: Math.round(runtime / 1e7),
+					paused: Boolean(state.IsPaused),
+					playMethod: state.PlayMethod || null,
+					...describeAddress(session.RemoteEndPoint),
+				};
+			});
+		res.json({configured: true, sessions});
+	} catch (err) {
+		console.error('Jellyfin now playing error:', getErrorDetails(err));
+		res.status(502).json({error: 'Failed to fetch Jellyfin sessions'});
+	}
+});
+
 router.get('/library', async (req, res) => {
 	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {
 		return res.status(503).json({error: 'Jellyfin API key or user is not configured'});

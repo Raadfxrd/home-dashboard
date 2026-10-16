@@ -90,14 +90,14 @@ const summary = computed(() => {
 </script>
 
 <template>
-  <section class="settle">
+  <section class="settle flex h-full min-h-0 flex-col">
     <header class="mb-4 flex items-baseline justify-between gap-4">
       <h2 class="t-section">Downloads</h2>
       <span v-if="loading" class="skeleton h-3 w-40" aria-hidden="true"></span>
       <p v-else class="reveal t-note t-read">{{ summary }}</p>
     </header>
 
-    <div v-if="loading" class="panel divide-y divide-line-soft" aria-busy="true" aria-label="Loading downloads">
+    <div v-if="loading" class="panel min-h-0 flex-1 divide-y divide-line-soft overflow-hidden" aria-busy="true" aria-label="Loading downloads">
       <div v-for="c in 2" :key="c" class="p-4" aria-hidden="true">
         <div class="mb-3 flex items-center gap-2.5">
           <span class="skeleton h-2 w-2 rounded-full"></span>
@@ -115,7 +115,7 @@ const summary = computed(() => {
       </div>
     </div>
 
-    <div v-else-if="clients.length" class="reveal panel divide-y divide-line-soft">
+    <div v-else-if="clients.length" class="reveal panel min-h-0 flex-1 divide-y divide-line-soft overflow-y-auto">
       <div v-for="client in clients" :key="client.id || client.name" class="p-4">
         <div class="mb-3 flex items-center gap-2.5">
           <span :class="client.online ? 'dot dot-live' : 'dot dot-fault'"></span>
@@ -162,7 +162,7 @@ const summary = computed(() => {
       </div>
     </div>
 
-    <p v-else class="panel p-5 t-note">
+    <p v-else class="panel flex-1 p-5 t-note">
       No download clients are reporting. Check Prowlarr and your client settings.
     </p>
   </section>
