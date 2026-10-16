@@ -3,6 +3,7 @@ import {computed} from 'vue';
 import TimeChart from './TimeChart.vue';
 import SegmentedControl from './SegmentedControl.vue';
 import RollingNumber from './RollingNumber.vue';
+import {formatBitrate, niceBitrateCeiling} from '../composables/bitrate.js';
 
 /**
  * The NAS at a glance. A plain-language status line first, then the two
@@ -39,7 +40,7 @@ function formatBytes(bytes) {
   return `${current >= 10 ? current.toFixed(0) : current.toFixed(1)} ${units[i]}`;
 }
 
-const rate = (bytes) => `${formatBytes(bytes)}/s`;
+const rate = formatBitrate;
 const pct = (v) => `${Math.round(v)}%`;
 const clock = (t) => new Date(t).toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'});
 
@@ -91,14 +92,9 @@ const cpuSummary = computed(() => {
 
 /* A round number just above the busiest moment, shared by both directions
    so download and upload are directly comparable. */
-const netMax = computed(() => {
-  // Rounded in the same binary units the labels are written in, so the
-  // scale reads "40 MB/s" rather than "38 MB/s".
-  const peakMiB = Math.max(stats.value.rxPeak || 0, stats.value.txPeak || 0, rx.value || 0, tx.value || 0, 1024 * 1024) / 1048576;
-  const magnitude = 10 ** Math.floor(Math.log10(peakMiB));
-  const step = [1, 2, 4, 5, 10].find((m) => m * magnitude >= peakMiB);
-  return step * magnitude * 1048576;
-});
+const netMax = computed(() =>
+  niceBitrateCeiling(Math.max(stats.value.rxPeak || 0, stats.value.txPeak || 0, rx.value || 0, tx.value || 0))
+);
 
 const xLabels = computed(() =>
   props.range === '24h' ? ['24 h ago', '12 h ago', 'Now'] : ['60 min ago', '30 min ago', 'Now']
@@ -141,7 +137,7 @@ function meterTone(percent) {
         </div>
         <div class="flex gap-3">
           <span class="skeleton min-w-0 flex-1 rounded-md" :style="{height: `${h}px`}"></span>
-          <span class="w-14 shrink-0"></span>
+          <span class="w-[4.5rem] shrink-0"></span>
         </div>
         <span v-if="i === 0" class="h-4"></span>
       </div>
@@ -190,13 +186,13 @@ function meterTone(percent) {
                 :format="pct"
                 :label="`Processor use over the last ${range === '24h' ? '24 hours' : 'hour'}, 0 to 100 percent. ${cpuSummary}`"
             />
-            <div class="relative w-14 shrink-0 text-[0.6875rem] tabular-nums text-faint" aria-hidden="true">
+            <div class="relative w-[4.5rem] shrink-0 text-[0.6875rem] tabular-nums text-faint" aria-hidden="true">
               <span class="absolute -top-1.5">100%</span>
               <span class="absolute top-1/2 -translate-y-1/2">50%</span>
               <span class="absolute -bottom-1.5">0%</span>
             </div>
           </div>
-          <div class="mr-[4.25rem] flex justify-between text-[0.6875rem] text-faint" aria-hidden="true">
+          <div class="mr-[5.25rem] flex justify-between text-[0.6875rem] text-faint" aria-hidden="true">
             <span v-for="text in xLabels" :key="text">{{ text }}</span>
           </div>
         </div>
@@ -231,7 +227,7 @@ function meterTone(percent) {
                 :format="rate"
                 :label="`Network traffic over the last ${range === '24h' ? '24 hours' : 'hour'}: download above the line, upload below, same scale.`"
             />
-            <div class="relative w-14 shrink-0 text-[0.6875rem] tabular-nums text-faint" aria-hidden="true">
+            <div class="relative w-[4.5rem] shrink-0 text-[0.6875rem] tabular-nums text-faint" aria-hidden="true">
               <span class="absolute -top-1.5 whitespace-nowrap">{{ rate(netMax) }}</span>
               <span class="absolute top-1/2 -translate-y-1/2">0</span>
               <span class="absolute -bottom-1.5 whitespace-nowrap">{{ rate(netMax) }}</span>

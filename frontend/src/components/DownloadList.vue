@@ -1,4 +1,5 @@
 <script setup>
+import {formatBitrate} from '../composables/bitrate.js';
 import {computed} from 'vue';
 
 /**
@@ -134,7 +135,7 @@ const summary = computed(() => {
                 {{ download.name }}
               </span>
               <span class="t-read w-[5.5rem] shrink-0 text-right text-[0.8125rem] text-dim">
-                {{ kind(download) === 'running' ? `${formatBytes(download.speedBytesPerSecond)}/s` : '' }}
+                {{ kind(download) === 'running' ? formatBitrate(download.speedBytesPerSecond) : '' }}
               </span>
               <span class="t-read w-[4.5rem] shrink-0 text-right text-[0.8125rem] text-faint">
                 {{ eta(download) }}
