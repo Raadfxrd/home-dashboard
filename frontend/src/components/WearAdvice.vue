@@ -15,6 +15,7 @@ const detail = useDetailStore();
   <button
       v-if="plan"
       type="button"
+      data-rain-catch
       class="wear glass press flex w-full items-center gap-4 rounded-md px-4 py-3 text-left"
       @click="detail.open('wear', plan, $event)"
   >

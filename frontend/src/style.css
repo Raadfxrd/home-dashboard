@@ -108,6 +108,21 @@ body {
 		border-radius: var(--r-md);
 	}
 
+	/* Over the weather animation a live blur would be recomputed every
+	   frame for every card, which makes the animation stutter. There the
+	   glass is a denser tint instead: the weather still shows through,
+	   softly, at no cost. */
+	.over-weather {
+		--glass-fill-hover: rgb(38 38 42 / 0.82);
+	}
+
+	.over-weather .panel,
+	.over-weather .glass {
+		background: rgb(24 24 27 / 0.72);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+
 	/* Floating layers: popovers and the detail sheet. */
 	.glass-float {
 		background: var(--glass-float);

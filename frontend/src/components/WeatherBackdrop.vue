@@ -7,8 +7,13 @@ import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
  * drifting noise), and a 2D canvas for falling precipitation in three depth
  * layers, so near drops are longer, brighter and faster than far ones.
  *
- * It stays out of the way: capped at 30 fps, paused when the tab is hidden
- * or the band is scrolled away, and with reduced motion only a still sky is
+ * Like Apple's Weather app, the nearer drops land on the cards: anything in
+ * the hero marked data-rain-catch stops them at its top edge with a small
+ * splash, while the far layer keeps falling behind.
+ *
+ * It stays smooth and cheap: the rain moves every display frame (60 or 120
+ * Hz) with real elapsed time, the soft sky only redraws about 30 times a
+ * second, both pause when the tab is hidden or the band is scrolled away, and with reduced motion only a still sky is
  * drawn (no particles, no flashes).
  */
 const props = defineProps({
@@ -45,6 +50,9 @@ const effect = computed(() => {
     fx.rain = Math.max(fx.rain, Math.min(1, 0.25 + mm / 4));
     fx.cloud = Math.max(fx.cloud, 0.45);
   }
+  // Drizzle hangs in the air as a faint mist; heavy rain falls in sheets.
+  if (fx.rain > 0 && fx.rain < 0.35) fx.fog = Math.max(fx.fog, 0.22);
+  if (fx.rain >= 0.8) fx.fog = Math.max(fx.fog, 0.3);
   return fx;
 });
 
@@ -72,9 +80,51 @@ let drops = [];
 let flakes = [];
 let flakeSprite = null;
 let nextFlashAt = 0;
+let obstacles = [];
+let lastScan = -1;
+let splashes = [];
+const SPLASH_MAX = 260;
+
+/* Where the cards are, relative to the canvas. Re-read twice a second:
+   cheap, and it follows layout changes without observers on every card. */
+function scanObstacles() {
+  const root = box.value?.parentElement;
+  if (!root || !box.value) return;
+  const b = box.value.getBoundingClientRect();
+  obstacles = [...root.querySelectorAll('[data-rain-catch]')]
+    .map((el) => {
+      const r = el.getBoundingClientRect();
+      // Keep clear of the rounded corners.
+      return {left: r.left - b.left + 6, right: r.right - b.left - 6, top: r.top - b.top};
+    })
+    .filter((o) => o.right - o.left > 12 && o.top > 0 && o.top < height);
+}
+
+function hitTop(x, fromY, toY) {
+  for (const o of obstacles) {
+    if (x >= o.left && x <= o.right && fromY < o.top && toY >= o.top) return o.top;
+  }
+  return null;
+}
+
+function splash(x, y, slant, strength) {
+  const n = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n && splashes.length < SPLASH_MAX; i += 1) {
+    splashes.push({
+      x,
+      y: y - 0.5,
+      vx: (Math.random() - 0.5) * 110 + slant * 60,
+      vy: -(45 + Math.random() * 80) * strength,
+      life: 0,
+      ttl: 0.22 + Math.random() * 0.2,
+      r: 0.8 + Math.random() * 0.8,
+    });
+  }
+}
 let flashStart = -1;
 
-const FRAME_MS = 1000 / 30;
+const SKY_FRAME_S = 1 / 30;
+let lastSky = -1;
 
 /* ---------- Sky: WebGL fog and cloud ---------- */
 
@@ -201,22 +251,44 @@ const RAIN_LAYERS = [
   {share: 0.2, len: [26, 38], width: 1.4, alpha: 0.32, speed: 1350},
 ];
 
+/* How rain looks at a given strength (0-1), so drizzle, rain and heavy
+   rain read differently, not just as more or fewer of the same drop:
+   drizzle is short, faint and slow, almost a mist; heavy rain is long,
+   bright, fast streaks, with the near layer doing more of the work. */
+const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
+function rainLook(i) {
+  return {
+    count: lerp(0.75, 1.25, i), // relative to the base count
+    len: lerp(0.28, 1.6, (i - 0.2) / 0.8),
+    speed: lerp(0.45, 1.4, (i - 0.2) / 0.8),
+    alpha: lerp(0.75, 1.5, (i - 0.3) / 0.7),
+    width: lerp(0.75, 1.35, (i - 0.3) / 0.7),
+    nearShare: lerp(0.08, 0.3, i),
+    splash: i < 0.35 ? 0 : lerp(0.35, 1, (i - 0.35) / 0.65),
+  };
+}
+let look = rainLook(0.5);
+
 function areaScale() {
   return (width * height) / (1440 * 460);
 }
 
 function seedDrops() {
-  const count = Math.round(effect.value.rain * 420 * areaScale());
+  const i = effect.value.rain;
+  look = rainLook(i);
+  const count = i > 0 ? Math.round(420 * areaScale() * look.count) : 0;
+  const near = look.nearShare;
+  const shares = [0.55 - near / 2, 0.45 - near / 2, near];
   drops = [];
   RAIN_LAYERS.forEach((layer, layerIndex) => {
-    const n = Math.round(count * layer.share);
+    const n = Math.round(count * shares[layerIndex]);
     for (let i = 0; i < n; i += 1) {
       drops.push({
         layer: layerIndex,
         x: Math.random() * width,
         y: Math.random() * height,
-        len: layer.len[0] + Math.random() * (layer.len[1] - layer.len[0]),
-        speed: layer.speed * (0.85 + Math.random() * 0.3),
+        len: (layer.len[0] + Math.random() * (layer.len[1] - layer.len[0])) * look.len,
+        speed: layer.speed * look.speed * (0.85 + Math.random() * 0.3),
       });
     }
   });
@@ -266,12 +338,22 @@ function drawFall(dt, seconds) {
     ctx2d.lineCap = 'round';
     RAIN_LAYERS.forEach((layer, layerIndex) => {
       ctx2d.beginPath();
-      ctx2d.lineWidth = layer.width;
-      ctx2d.strokeStyle = `rgba(205, 218, 238, ${layer.alpha})`;
+      ctx2d.lineWidth = layer.width * look.width;
+      ctx2d.strokeStyle = `rgba(205, 218, 238, ${Math.min(0.6, layer.alpha * look.alpha)})`;
       for (const d of drops) {
         if (d.layer !== layerIndex) continue;
+        const fromY = d.y;
         d.y += d.speed * dt;
         d.x += d.speed * slant * dt;
+        // Mid and near drops land on the cards; the far layer passes behind.
+        const top = layerIndex > 0 && obstacles.length ? hitTop(d.x, fromY, d.y) : null;
+        if (top !== null) {
+          const chance = look.splash * (layerIndex === 2 ? 1 : 0.45);
+          if (Math.random() < chance) splash(d.x, top, slant, look.splash * (layerIndex === 2 ? 1 : 0.7));
+          d.y = -Math.random() * 60;
+          d.x = Math.random() * (width + height * slant) - height * slant;
+          continue;
+        }
         if (d.y - d.len > height) {
           d.y = -Math.random() * 40;
           d.x = Math.random() * (width + height * slant) - height * slant;
@@ -283,9 +365,36 @@ function drawFall(dt, seconds) {
     });
   }
 
+  // Splashes: tiny droplets thrown up and pulled back down.
+  if (splashes.length) {
+    ctx2d.fillStyle = 'rgb(215, 226, 244)';
+    let keep = 0;
+    for (const p of splashes) {
+      p.life += dt;
+      if (p.life >= p.ttl) continue;
+      p.vy += 900 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      ctx2d.globalAlpha = 0.7 * (1 - p.life / p.ttl);
+      ctx2d.beginPath();
+      ctx2d.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx2d.fill();
+      splashes[keep++] = p;
+    }
+    splashes.length = keep;
+    ctx2d.globalAlpha = 1;
+  }
+
   if (flakes.length) {
     for (const f of flakes) {
+      const fromY = f.y;
       f.y += f.speed * dt;
+      // Near flakes settle on the cards and vanish.
+      if (f.z > 0.55 && obstacles.length && hitTop(f.x, fromY, f.y) !== null) {
+        f.y = -f.r * 2 - Math.random() * 40;
+        f.x = Math.random() * width;
+        continue;
+      }
       f.x += Math.sin(seconds * f.freq + f.phase) * f.sway * dt + f.speed * slant * 0.6 * dt;
       if (f.y - f.r > height) {
         f.y = -f.r * 2;
@@ -323,7 +432,9 @@ function resize() {
   if (!el) return;
   width = el.clientWidth;
   height = el.clientHeight;
-  dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  // Thin moving streaks don't need retina pixels; this keeps the canvas
+  // a quarter of the size on a 2x screen.
+  dpr = 1;
   for (const canvas of [skyCanvas.value, fallCanvas.value]) {
     if (!canvas) continue;
     canvas.width = Math.max(1, Math.round(width * dpr));
@@ -339,6 +450,8 @@ function resize() {
 }
 
 function reseed() {
+  splashes = [];
+  lastScan = -1;
   if (reduceMotion) {
     drops = [];
     flakes = [];
@@ -362,11 +475,18 @@ function frame(now) {
     last = now;
     return;
   }
-  if (now - last < FRAME_MS) return;
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
   const seconds = (now - startedAt) / 1000;
-  drawSky(seconds);
+  if (seconds - lastScan > 0.5 || lastScan < 0) {
+    scanObstacles();
+    lastScan = seconds;
+  }
+  // The sky drifts slowly; redrawing it every other frame looks the same.
+  if (seconds - lastSky >= SKY_FRAME_S || lastSky < 0) {
+    drawSky(seconds);
+    lastSky = seconds;
+  }
   drawFall(dt, seconds);
 }
 
@@ -396,7 +516,7 @@ onMounted(() => {
   motionQuery?.addEventListener?.('change', onMotionChange);
 
   initSky();
-  ctx2d = fallCanvas.value?.getContext('2d') || null;
+  ctx2d = fallCanvas.value?.getContext('2d', {desynchronized: true}) || null;
   flakeSprite = makeFlakeSprite();
   startedAt = performance.now();
   nextFlashAt = 4 + Math.random() * 6;

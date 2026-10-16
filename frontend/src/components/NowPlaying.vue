@@ -59,6 +59,7 @@ function method(s) {
           v-for="s in sessions"
           :key="s.id"
           type="button"
+          data-rain-catch
           class="np-card panel press group flex gap-4 p-3 text-left"
           @click="detail.open('stream', s, $event)"
       >

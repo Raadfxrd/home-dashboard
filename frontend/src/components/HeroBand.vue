@@ -278,7 +278,7 @@ const forecast = computed(() =>
         title="Back to the real weather"
     >Simulating {{ simulated.name }} ×</a>
 
-    <div class="hero-grid relative">
+    <div class="hero-grid over-weather relative">
 
       <!-- Time, the thing you are most often here to read. -->
       <div class="hero-clock min-w-0">
@@ -430,6 +430,7 @@ const forecast = computed(() =>
           <li v-for="(slot, i) in forecast" :key="slot.time" class="min-w-0">
             <button
                 type="button"
+                data-rain-catch
                 class="forecast-tile press flex w-full min-w-0 flex-col gap-2 glass rounded-md px-2.5 py-3 text-left sm:px-3"
                 :aria-label="`${slot.time}: ${slot.temperature} degrees, ${slot.condition || ''}. Show details`"
                 @click="detail.open('forecast', {block: slot, next: forecast[i + 1]?.time, glyph: slot.glyph}, $event)"
