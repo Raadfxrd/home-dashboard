@@ -16,6 +16,7 @@ const RADARR_URL = (process.env.RADARR_URL || '').replace(/\/$/, '');
 const RADARR_API_KEY = process.env.RADARR_API_KEY || '';
 const DAYS_AHEAD = Math.max(1, Math.min(31, Number(process.env.UPCOMING_DAYS || 7)));
 const TIMEOUT_MS = 10000;
+const LOOKAHEAD_DAYS = 60;
 
 function window() {
 	const start = new Date();
@@ -132,8 +133,22 @@ router.get('/', async (_req, res) => {
 			: [],
 	]);
 
-	const items = [...episodes, ...movies].sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || a.title.localeCompare(b.title));
-	const payload = {configured, items, failed, days: DAYS_AHEAD, from: span.start.toISOString(), to: span.end.toISOString()};
+	const byTime = (a, b) => Date.parse(a.at) - Date.parse(b.at) || a.title.localeCompare(b.title);
+	const items = [...episodes, ...movies].sort(byTime);
+
+	/* A quiet week: look further ahead for the next thing that is coming,
+	   so the section still says something useful. */
+	let next = null;
+	if (!items.length) {
+		const far = {start: span.end, end: new Date(span.end.getTime() + LOOKAHEAD_DAYS * 86400000)};
+		const later = await Promise.all([
+			configured.sonarr && !failed.some((f) => f.service === 'sonarr') ? fetchSonarr(far).catch(() => []) : [],
+			configured.radarr && !failed.some((f) => f.service === 'radarr') ? fetchRadarr(far).catch(() => []) : [],
+		]);
+		next = later.flat().sort(byTime)[0] || null;
+	}
+
+	const payload = {configured, items, next, lookahead: LOOKAHEAD_DAYS, failed, days: DAYS_AHEAD, from: span.start.toISOString(), to: span.end.toISOString()};
 	// Don't hold on to a half-failed answer for long.
 	cache.set('upcoming', payload, failed.length ? 60 : 600);
 	res.json(payload);

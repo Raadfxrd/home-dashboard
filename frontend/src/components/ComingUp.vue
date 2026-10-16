@@ -51,6 +51,14 @@ const days = computed(() => {
 });
 
 const busyDays = computed(() => days.value.filter((d) => d.items.length));
+const quietWeek = computed(() => !busyDays.value.length);
+
+const nextFmt = new Intl.DateTimeFormat('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
+const next = computed(() => {
+  const n = props.data?.next;
+  if (!n) return null;
+  return {...n, when: nextFmt.format(new Date(n.at))};
+});
 
 const failures = computed(() =>
   (props.data?.failed || []).map((f) => {
@@ -97,8 +105,23 @@ const failures = computed(() =>
         <li v-for="f in failures" :key="f.key" class="flex items-center gap-2 t-note"><span class="dot dot-warn"></span>{{ f.text }}</li>
       </ul>
 
+      <!-- A week with nothing in it: one line, and what comes after. -->
+      <div v-if="quietWeek" class="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
+        <p class="t-body text-dim">Nothing new in the next {{ data?.days || 7 }} days.</p>
+        <div v-if="next" class="flex min-w-0 items-center gap-3">
+          <span class="well aspect-[2/3] w-8 shrink-0 overflow-hidden rounded-[5px]">
+            <img v-if="next.poster" :src="next.poster" alt="" class="h-full w-full object-cover" loading="lazy"/>
+          </span>
+          <span class="min-w-0">
+            <span class="block truncate text-[0.875rem] text-ink">Next up: {{ next.title }}</span>
+            <span class="block truncate t-note text-[0.75rem]">{{ next.subtitle }} · {{ next.when }}</span>
+          </span>
+        </div>
+        <p v-else class="t-note">Nothing scheduled in the next {{ data?.lookahead || 60 }} days either.</p>
+      </div>
+
       <!-- Wide: the week as seven columns. -->
-      <div class="hidden divide-x divide-line-soft lg:grid" :style="{gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`}">
+      <div v-if="!quietWeek" class="hidden divide-x divide-line-soft lg:grid" :style="{gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`}">
         <div v-for="day in days" :key="day.key" class="min-w-0 px-3 pb-4 pt-3">
           <h3 class="mb-2 truncate text-[0.75rem] font-semibold" :class="day.label === 'Today' ? 'text-ink' : 'text-dim'">{{ day.short }}</h3>
           <p v-if="!day.items.length" class="text-[0.75rem] text-faint">–</p>
@@ -121,8 +144,7 @@ const failures = computed(() =>
       </div>
 
       <!-- Narrow: only the days with something on them, as a list. -->
-      <div class="px-4 py-2 lg:hidden">
-        <p v-if="!busyDays.length" class="py-2 t-note">Nothing new this week.</p>
+      <div v-if="!quietWeek" class="px-4 py-2 lg:hidden">
         <div v-for="day in busyDays" :key="day.key" class="border-b border-line-soft py-2 last:border-b-0">
           <h3 class="pb-1 pt-1 text-[0.75rem] font-semibold text-dim">{{ day.label }}</h3>
           <ul>

@@ -327,6 +327,10 @@ function demoUpcoming() {
 		{id: 'u5', kind: 'episode', title: 'Station Eleven Road', subtitle: 'S01E08 · Signal', at: day(4, 20, 30), allDay: false, hasFile: false, poster: p(5)},
 		{id: 'u6', kind: 'movie', title: 'The Long Field', subtitle: 'In cinemas · 2026', at: day(5, 0), allDay: true, hasFile: false, poster: p(6)},
 	];
+	// ?quiet=1 previews a week with nothing in it.
+	if (new URLSearchParams(location.search).get('quiet')) {
+		return {configured: {sonarr: true, radarr: true}, items: [], next: {...items[3], at: day(19, 21)}, lookahead: 60, failed: [], days: 7};
+	}
 	return {configured: {sonarr: true, radarr: true}, items, failed: [], days: 7};
 }
 
