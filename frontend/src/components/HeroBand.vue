@@ -47,7 +47,30 @@ const meta = computed(() => {
 });
 
 const rain = computed(() => props.outlook?.rain || null);
-const rainNow = computed(() => rain.value?.slots?.[0]?.mm || 0);
+
+/* ?weather=rain|heavy|drizzle|storm|snow|sleet|fog|clouds|clear plays that
+   animation over the real dashboard, to try them out. Only the backdrop
+   changes; the numbers stay real. ?wind=40 sets the wind (slant), ?mm=3
+   the rain strength. */
+const SIMULATE = {
+  clear: {conditionId: 800, mm: 0, wind: 8},
+  clouds: {conditionId: 804, mm: 0, wind: 15},
+  fog: {conditionId: 741, mm: 0, wind: 5},
+  drizzle: {conditionId: 301, mm: 0.3, wind: 12},
+  rain: {conditionId: 500, mm: 1.2, wind: 20},
+  heavy: {conditionId: 502, mm: 6, wind: 35},
+  storm: {conditionId: 211, mm: 8, wind: 55},
+  snow: {conditionId: 601, mm: 1, wind: 10},
+  sleet: {conditionId: 611, mm: 1.5, wind: 25},
+};
+const query = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const simulated = SIMULATE[query.get('weather')] ? {name: query.get('weather'), ...SIMULATE[query.get('weather')]} : null;
+const numberParam = (key) => (query.has(key) && Number.isFinite(Number(query.get(key))) ? Number(query.get(key)) : null);
+const backdrop = computed(() => ({
+  conditionId: simulated?.conditionId ?? props.here?.conditionId,
+  rainNow: numberParam('mm') ?? simulated?.mm ?? (rain.value?.slots?.[0]?.mm || 0),
+  windSpeed: numberParam('wind') ?? simulated?.wind ?? props.here?.windSpeed,
+}));
 
 /* One scrollable rain timeline, hour by hour for the next 5 days. The
    first hours come from the radar (its 5-minute readings averaged per
@@ -244,10 +267,16 @@ const forecast = computed(() =>
   <section class="settle relative px-6 pb-10 pt-10 md:px-10 md:pb-12 md:pt-14">
     <WeatherBackdrop
         v-if="here"
-        :condition-id="here.conditionId"
-        :rain-now="rainNow"
-        :wind-speed="here.windSpeed"
+        :condition-id="backdrop.conditionId"
+        :rain-now="backdrop.rainNow"
+        :wind-speed="backdrop.windSpeed"
     />
+    <a
+        v-if="simulated"
+        href="/"
+        class="glass press absolute right-4 top-4 z-10 rounded-full px-3 py-1 text-[0.75rem] text-dim hover:text-ink"
+        title="Back to the real weather"
+    >Simulating {{ simulated.name }} ×</a>
 
     <div class="hero-grid relative">
 
