@@ -1,6 +1,11 @@
 #!/bin/sh
-# Build and (re)start the dashboard on the NAS.
-# Usage (over SSH on the NAS):  cd /volume1/Projects/home-dashboard && sudo sh deploy.sh
+# Update and (re)start the dashboard on the NAS.
+#
+#   cd /volume1/Projects/home-dashboard && sudo sh deploy.sh
+#
+# Downloads the image GitHub built from main (about a minute) and restarts
+# the container. `sudo sh deploy.sh --build` builds the image on the NAS
+# instead (slow, ~10-20 minutes), e.g. to try changes that aren't on main.
 set -e
 cd "$(dirname "$0")"
 
@@ -19,7 +24,23 @@ if docker compose version >/dev/null 2>&1; then
 else
   DC="docker-compose"
 fi
+COMPOSE="$DC -f docker-compose.nas.yml"
 
-$DC -f docker-compose.nas.yml up -d --build --remove-orphans
+if [ "$1" = "--build" ]; then
+  echo "Building the image on the NAS..."
+  $COMPOSE up -d --build --remove-orphans
+else
+  echo "Downloading the latest image..."
+  if $COMPOSE pull; then
+    $COMPOSE up -d --no-build --remove-orphans
+  else
+    echo "" >&2
+    echo "Couldn't download the image. If the package on GitHub is still private," >&2
+    echo "make it public (GitHub > your profile > Packages > home-dashboard >" >&2
+    echo "Package settings > Change visibility), or run: sudo sh deploy.sh --build" >&2
+    exit 1
+  fi
+fi
+
 docker image prune -f >/dev/null
-$DC -f docker-compose.nas.yml ps
+$COMPOSE ps

@@ -49,4 +49,21 @@ picks the sky. Click "Simulating … ×" to go back.
 
 ## Updating
 
-From the Mac: `git -C /Volumes/Projects/home-dashboard pull`, then `sudo sh deploy.sh` on the NAS again.
+GitHub builds the image whenever `main` changes (Actions tab, "Image",
+about 3 minutes). Then on the NAS:
+
+```
+cd /volume1/Projects/home-dashboard && sudo sh deploy.sh
+```
+
+That downloads the new image and restarts the container, usually within a
+minute. Pull the repo on the Mac first only when `docker-compose.nas.yml`,
+`deploy.sh` or `.env.example` changed: `git -C /Volumes/Projects/home-dashboard pull`.
+
+`sudo sh deploy.sh --build` still builds on the NAS (10-20 minutes), for
+changes that aren't on `main` yet.
+
+The first time, make the package public so the NAS can download it without
+signing in: GitHub > your profile > Packages > home-dashboard > Package
+settings > Change visibility > Public. It only contains the built app; your
+`.env` is never in it.

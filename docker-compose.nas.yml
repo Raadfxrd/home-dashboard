@@ -1,11 +1,15 @@
 # Deployment for the Asustor NAS.
 # Run from this folder on the NAS:  sudo sh deploy.sh
+#
+# The image is built by GitHub (.github/workflows/image.yml) and pulled
+# from the GitHub Container Registry. `sudo sh deploy.sh --build` builds it
+# here instead, from this folder.
 name: home-dashboard
 
 services:
   dashboard:
+    image: ${DASHBOARD_IMAGE:-ghcr.io/raadfxrd/home-dashboard:latest}
     build: .
-    image: home-dashboard
     container_name: home-dashboard
     env_file: .env
     environment:
