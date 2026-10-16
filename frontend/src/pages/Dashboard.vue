@@ -174,7 +174,15 @@ onUnmounted(() => {
       <!-- A grid that does not rearrange itself as data lands. Everything
            keeps its place so it can be found without reading. -->
       <main class="grid grid-cols-1 gap-x-8 gap-y-10 px-5 pb-14 md:px-9 xl:grid-cols-12">
-        <div class="xl:col-span-5">
+        <!-- One section per row, full width, in order of how often you look:
+             what's playing, the NAS, downloads, the week, then the library. -->
+        <Transition name="slot">
+          <div v-if="jellyfinStore.nowPlaying.length" class="xl:col-span-12">
+            <NowPlaying :sessions="jellyfinStore.nowPlaying"/>
+          </div>
+        </Transition>
+
+        <div class="xl:col-span-12">
           <SystemReadout
               :metrics="nas"
               :fallback="homeStore.serviceStatus.nasUsage"
@@ -185,23 +193,13 @@ onUnmounted(() => {
           />
         </div>
 
-        <!-- On wide screens the System card sets this row's height and the
-             download list fills exactly that, scrolling if it is longer. -->
-        <div class="min-h-[18rem] xl:relative xl:col-span-7">
-          <div class="h-full xl:absolute xl:inset-0">
-            <DownloadList :activity="homeStore.serviceStatus.downloadActivity" :loading="!homeStore.statusLoaded"/>
-          </div>
+        <div class="xl:col-span-12">
+          <DownloadList :activity="homeStore.serviceStatus.downloadActivity" :loading="!homeStore.statusLoaded"/>
         </div>
 
         <div class="xl:col-span-12">
           <ComingUp :data="homeStore.upcoming" :loading="!homeStore.upcoming"/>
         </div>
-
-        <Transition name="slot">
-          <div v-if="jellyfinStore.nowPlaying.length" class="xl:col-span-12">
-            <NowPlaying :sessions="jellyfinStore.nowPlaying"/>
-          </div>
-        </Transition>
 
         <div class="xl:col-span-12">
           <section class="settle">

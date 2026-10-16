@@ -124,49 +124,80 @@ function meterTone(percent) {
 
     <!-- First load: the card's own shape, so nothing moves when data lands. -->
     <div v-if="loading" class="panel" aria-busy="true" aria-label="Loading NAS status">
-      <div class="flex h-[3.4rem] items-center gap-2.5 border-b border-line-soft px-5" aria-hidden="true">
-        <span class="skeleton h-2 w-2 rounded-full"></span>
-        <span class="skeleton h-4 w-36"></span>
-        <span class="skeleton ml-auto h-3 w-28"></span>
+      <div class="flex flex-col gap-4 border-b border-line-soft px-5 py-4 lg:flex-row lg:items-center lg:justify-between" aria-hidden="true">
+        <span class="flex items-center gap-2.5">
+          <span class="skeleton h-2 w-2 rounded-full"></span>
+          <span class="flex flex-col gap-1.5"><span class="skeleton h-4 w-36"></span><span class="skeleton h-3 w-28"></span></span>
+        </span>
+        <span class="grid grid-cols-2 gap-7 lg:w-[34rem]">
+          <span v-for="m in 2" :key="m" class="flex flex-col gap-2">
+            <span class="flex h-5 items-center justify-between"><span class="skeleton h-3.5 w-16"></span><span class="skeleton h-3.5 w-10"></span></span>
+            <span class="skeleton h-1.5 rounded-full"></span>
+            <span class="flex h-4 items-center"><span class="skeleton h-3 w-24"></span></span>
+          </span>
+        </span>
       </div>
-      <div v-for="(h, i) in [112, 88]" :key="h" class="flex flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4" aria-hidden="true">
-        <div class="flex items-center gap-3" :class="i === 0 ? 'h-7' : 'h-5'">
-          <span class="skeleton h-4 w-20"></span>
-          <span v-if="i === 0" class="skeleton h-7 w-16"></span>
-          <span class="skeleton ml-auto h-3 w-40"></span>
-        </div>
-        <div class="flex gap-3">
-          <span class="skeleton min-w-0 flex-1 rounded-md" :style="{height: `${h}px`}"></span>
-          <span class="w-[4.5rem] shrink-0"></span>
-        </div>
-        <span v-if="i === 0" class="h-4"></span>
-      </div>
-      <div class="grid grid-cols-2 gap-7 px-5 pb-5 pt-4" aria-hidden="true">
-        <div v-for="m in 2" :key="m" class="flex flex-col gap-2.5">
-          <div class="flex h-6 items-center justify-between"><span class="skeleton h-4 w-16"></span><span class="skeleton h-4 w-10"></span></div>
-          <span class="skeleton h-1.5 rounded-full"></span>
-          <span class="flex h-5 items-center"><span class="skeleton h-3 w-28"></span></span>
+      <div class="grid grid-cols-1 divide-line-soft lg:grid-cols-2 lg:divide-x" aria-hidden="true">
+        <div v-for="c in 2" :key="c" class="flex flex-col gap-3 px-5 pb-4 pt-4" :class="c === 1 ? 'border-b border-line-soft lg:border-b-0' : ''">
+          <div class="flex h-7 items-center gap-3">
+            <span class="skeleton h-4 w-20"></span>
+            <span class="skeleton h-6 w-16"></span>
+            <span class="skeleton ml-auto h-3 w-40"></span>
+          </div>
+          <div class="flex gap-3">
+            <span class="skeleton h-[128px] min-w-0 flex-1 rounded-md"></span>
+            <span class="w-[4.5rem] shrink-0"></span>
+          </div>
+          <span class="h-4"></span>
         </div>
       </div>
     </div>
 
     <div v-else-if="metrics.configured" class="reveal panel">
-      <!-- Status -->
-      <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1 border-b border-line-soft px-5 py-3.5">
-        <span class="status-dot" :class="`dot dot-${status.tone}`"></span>
-        <Transition name="swap" mode="out-in">
-          <span :key="status.text" class="text-[0.9375rem] font-semibold text-ink">{{ status.text }}</span>
-        </Transition>
-        <span v-if="status.detail" class="t-note">{{ status.detail }}</span>
-        <span v-if="host && metrics.online" class="ml-auto t-note">{{ host }}</span>
+      <!-- Status, with the two slow-moving measures beside it. -->
+      <div class="flex flex-col gap-4 border-b border-line-soft px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2.5">
+            <span class="status-dot" :class="`dot dot-${status.tone}`"></span>
+            <Transition name="swap" mode="out-in">
+              <span :key="status.text" class="text-[0.9375rem] font-semibold text-ink">{{ status.text }}</span>
+            </Transition>
+          </div>
+          <p v-if="status.detail" class="mt-0.5 pl-[1.125rem] t-note">{{ status.detail }}</p>
+          <p v-else-if="host && metrics.online" class="mt-0.5 pl-[1.125rem] t-note">{{ host }}</p>
+        </div>
+
+        <div v-if="metrics.online" class="grid grid-cols-2 gap-7 lg:w-[34rem]">
+          <div class="flex flex-col gap-2">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="t-body">Memory</span>
+              <span class="text-[1rem] font-semibold text-ink"><RollingNumber :value="ram" suffix="%" fallback="–"/></span>
+            </div>
+            <span class="well block h-1.5 overflow-hidden rounded-full">
+              <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(ram)" :style="{width: `${Math.max(0, Math.min(100, ram || 0))}%`}"></span>
+            </span>
+            <span class="t-note text-[0.75rem]">{{ formatBytes(metrics.memory?.usedBytes) }} of {{ formatBytes(metrics.memory?.totalBytes) }} in use</span>
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="t-body">Storage</span>
+              <span class="text-[1rem] font-semibold text-ink"><RollingNumber :value="disk" suffix="%" fallback="–"/></span>
+            </div>
+            <span class="well block h-1.5 overflow-hidden rounded-full">
+              <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(disk)" :style="{width: `${Math.max(0, Math.min(100, disk || 0))}%`}"></span>
+            </span>
+            <span class="t-note text-[0.75rem]">{{ formatBytes(diskFree) }} free</span>
+          </div>
+        </div>
       </div>
 
-      <template v-if="metrics.online">
+      <!-- The two measures that move, side by side on wide screens. -->
+      <div v-if="metrics.online" class="grid grid-cols-1 divide-line-soft lg:grid-cols-2 lg:divide-x">
         <!-- Processor -->
-        <div class="flex flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4">
-          <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div class="flex min-w-0 flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4 lg:border-b-0">
+          <div class="flex min-h-7 flex-wrap items-baseline gap-x-3 gap-y-1">
             <span class="t-body">Processor</span>
-            <span class="text-[1.75rem] font-semibold leading-none tracking-[-0.02em] text-ink"><RollingNumber :value="cpu" suffix="%" fallback="–" digit-width="0.6em"/></span>
+            <span class="text-[1.5rem] font-semibold leading-none tracking-[-0.02em] text-ink"><RollingNumber :value="cpu" suffix="%" fallback="–" digit-width="0.6em"/></span>
             <Transition name="swap" mode="out-in">
               <span :key="cpuSummary" class="ml-auto t-note">{{ cpuSummary }}</span>
             </Transition>
@@ -181,7 +212,7 @@ function meterTone(percent) {
                 :to="span.to"
                 :series="[{key: 'cpu', label: 'Processor', color: CPU_COLOR}]"
                 :max="100"
-                :height="112"
+                :height="128"
                 :step-seconds="history?.stepSeconds || 10"
                 :format="pct"
                 :label="`Processor use over the last ${range === '24h' ? '24 hours' : 'hour'}, 0 to 100 percent. ${cpuSummary}`"
@@ -192,14 +223,14 @@ function meterTone(percent) {
               <span class="absolute -bottom-1.5">0%</span>
             </div>
           </div>
-          <div class="mr-[5.25rem] flex justify-between text-[0.6875rem] text-faint" aria-hidden="true">
+          <div class="mr-[5.25rem] flex h-4 justify-between text-[0.6875rem] text-faint" aria-hidden="true">
             <span v-for="text in xLabels" :key="text">{{ text }}</span>
           </div>
         </div>
 
         <!-- Network -->
-        <div class="flex flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4">
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <div class="flex min-w-0 flex-col gap-3 px-5 pb-4 pt-4">
+          <div class="flex min-h-7 flex-wrap items-center gap-x-4 gap-y-1">
             <span class="t-body">Network</span>
             <span class="flex items-center gap-1.5 text-[0.875rem] text-dim">
               <span class="h-2.5 w-2.5 rounded-[3px]" :style="{background: CPU_COLOR}"></span>
@@ -222,7 +253,7 @@ function meterTone(percent) {
                 :to="span.to"
                 :series="[{key: 'rx', label: 'Down', color: CPU_COLOR}, {key: 'tx', label: 'Up', color: UP_COLOR}]"
                 :max="netMax"
-                :height="88"
+                :height="128"
                 :step-seconds="history?.stepSeconds || 10"
                 :format="rate"
                 :label="`Network traffic over the last ${range === '24h' ? '24 hours' : 'hour'}: download above the line, upload below, same scale.`"
@@ -233,32 +264,11 @@ function meterTone(percent) {
               <span class="absolute -bottom-1.5 whitespace-nowrap">{{ rate(netMax) }}</span>
             </div>
           </div>
-        </div>
-
-        <!-- Memory and storage -->
-        <div class="grid grid-cols-2 gap-7 px-5 pb-5 pt-4">
-          <div class="flex flex-col gap-2.5">
-            <div class="flex items-baseline justify-between gap-2">
-              <span class="t-body">Memory</span>
-              <span class="text-[1.0625rem] font-semibold text-ink"><RollingNumber :value="ram" suffix="%" fallback="–"/></span>
-            </div>
-            <span class="well block h-1.5 overflow-hidden rounded-full">
-              <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(ram)" :style="{width: `${Math.max(0, Math.min(100, ram || 0))}%`}"></span>
-            </span>
-            <span class="t-note">{{ formatBytes(metrics.memory?.usedBytes) }} of {{ formatBytes(metrics.memory?.totalBytes) }} in use</span>
-          </div>
-          <div class="flex flex-col gap-2.5">
-            <div class="flex items-baseline justify-between gap-2">
-              <span class="t-body">Storage</span>
-              <span class="text-[1.0625rem] font-semibold text-ink"><RollingNumber :value="disk" suffix="%" fallback="–"/></span>
-            </div>
-            <span class="well block h-1.5 overflow-hidden rounded-full">
-              <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(disk)" :style="{width: `${Math.max(0, Math.min(100, disk || 0))}%`}"></span>
-            </span>
-            <span class="t-note">{{ formatBytes(diskFree) }} free</span>
+          <div class="mr-[5.25rem] flex h-4 justify-between text-[0.6875rem] text-faint" aria-hidden="true">
+            <span v-for="text in xLabels" :key="text">{{ text }}</span>
           </div>
         </div>
-      </template>
+      </div>
     </div>
 
     <!-- Fall back to plain volume usage when SNMP isn't on. -->
