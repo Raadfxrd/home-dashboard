@@ -82,15 +82,27 @@ export function planFor(window, weather) {
 }
 
 /* Today's and tomorrow's agenda, finished events left out. */
-export function agenda(events = [], now = Date.now()) {
-	const today = new Date(now);
-	today.setHours(0, 0, 0, 0);
-	const tomorrow = today.getTime() + 24 * HOUR;
-	const dayAfter = tomorrow + 24 * HOUR;
+const weekdayFmt = new Intl.DateTimeFormat('en-GB', {weekday: 'long', day: 'numeric', month: 'short'});
+
+/* Upcoming events grouped per day, today first: [{key, label, items}].
+   Days without anything on them are left out. */
+export function agenda(events = [], now = Date.now(), days = 7) {
+	const start = new Date(now);
+	start.setHours(0, 0, 0, 0);
 	const upcoming = events.filter((e) => Date.parse(e.end) > now);
 	const order = (a, b) => (b.allDay - a.allDay) || Date.parse(a.start) - Date.parse(b.start);
-	return {
-		today: upcoming.filter((e) => Date.parse(e.start) < tomorrow).sort(order),
-		tomorrow: upcoming.filter((e) => Date.parse(e.start) >= tomorrow && Date.parse(e.start) < dayAfter).sort(order),
-	};
+	const list = [];
+	for (let i = 0; i < days; i++) {
+		const from = new Date(start);
+		from.setDate(start.getDate() + i);
+		const to = new Date(from);
+		to.setDate(from.getDate() + 1);
+		// Multi-day events show on the day they're running, today included.
+		const items = upcoming
+			.filter((e) => (i === 0 ? Date.parse(e.start) < to.getTime() : Date.parse(e.start) >= from.getTime() && Date.parse(e.start) < to.getTime()))
+			.sort(order);
+		if (!items.length) continue;
+		list.push({key: from.toDateString(), label: i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : weekdayFmt.format(from), items});
+	}
+	return list;
 }

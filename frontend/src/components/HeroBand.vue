@@ -115,9 +115,66 @@ const rainBars = computed(() => {
       inWindow: index < shown,
       height: grown.value && wet ? Math.round(6 + level * 50) : 2,
       label: wet ? `${span}, ${slot.mm.toFixed(1)} mm/h${chance}` : `${span}, dry${chance}`,
+      span,
+      mm: slot.mm,
+      rainChance: slot.rainChance ?? null,
     };
   });
 });
+
+/* Hovering (or dragging a finger, or arrow keys) over the bars reads one
+   slot out in the same tooltip the system charts use. */
+const rainHover = ref(null);
+const rainTrack = ref(null);
+
+function intensity(mm) {
+  if (mm < 0.1) return 'Dry';
+  if (mm < 1) return 'Light rain';
+  if (mm < 4) return 'Rain';
+  if (mm < 10) return 'Heavy rain';
+  return 'Downpour';
+}
+
+const rainReadout = computed(() => {
+  const i = rainHover.value;
+  const shown = shownSlots.value.length;
+  if (i == null || i >= shown) return null;
+  const bar = rainBars.value[i];
+  if (!bar) return null;
+  const left = ((i + 0.5) / shown) * 100;
+  return {
+    index: i,
+    left,
+    flip: left > 70,
+    time: i === 0 && !isDay.value ? `Now, ${bar.span}` : bar.span,
+    title: intensity(bar.mm),
+    amount: bar.wet ? `${bar.mm.toFixed(1)} mm/h` : null,
+    chance: bar.rainChance != null ? `${bar.rainChance}% chance` : null,
+  };
+});
+
+function onRainPointer(event) {
+  const el = rainTrack.value;
+  const shown = shownSlots.value.length;
+  if (!el || !shown) return;
+  const r = el.getBoundingClientRect();
+  const x = Math.min(Math.max(event.clientX - r.left, 0), r.width - 1);
+  rainHover.value = Math.floor((x / r.width) * shown);
+}
+
+function onRainKey(event) {
+  const shown = shownSlots.value.length;
+  if (!shown) return;
+  if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+    event.preventDefault();
+    const step = event.key === 'ArrowRight' ? 1 : -1;
+    rainHover.value = Math.min(shown - 1, Math.max(0, (rainHover.value ?? (step > 0 ? -1 : shown)) + step));
+  } else if (event.key === 'Escape') {
+    rainHover.value = null;
+  }
+}
+
+watch(shownSlots, () => (rainHover.value = null));
 
 /* Bars rise from the baseline the first time they appear. */
 const grown = ref(false);
@@ -144,7 +201,7 @@ const forecast = computed(() =>
 </script>
 
 <template>
-  <section class="settle relative overflow-hidden px-6 pb-10 pt-10 md:px-10 md:pb-12 md:pt-14">
+  <section class="settle relative px-6 pb-10 pt-10 md:px-10 md:pb-12 md:pt-14">
     <WeatherBackdrop
         v-if="here"
         :condition-id="here.conditionId"
@@ -237,18 +294,38 @@ const forecast = computed(() =>
             />
           </div>
           <div
-              class="mt-3 flex h-14 items-end overflow-hidden border-b border-line"
+              class="rain-chart relative mt-3"
+              tabindex="0"
               role="img"
-              :aria-label="rainSummary"
+              :aria-label="rainReadout ? `${rainReadout.time}: ${rainReadout.title}${rainReadout.amount ? `, ${rainReadout.amount}` : ''}` : rainSummary"
+              @pointermove="onRainPointer"
+              @pointerdown="onRainPointer"
+              @pointerleave="rainHover = null"
+              @keydown="onRainKey"
+              @blur="rainHover = null"
           >
-            <span
-                v-for="bar in rainBars"
-                :key="bar.key"
-                class="rain-bar rounded-t-[3px]"
-                :class="[bar.wet ? 'bg-accent' : 'bg-line', bar.inWindow ? 'in-window' : 'out-window']"
-                :style="{height: `${bar.height}px`}"
-                :title="bar.label"
-            ></span>
+            <div ref="rainTrack" class="flex h-14 items-end overflow-hidden border-b border-line" :class="{'is-reading': rainReadout}">
+              <span
+                  v-for="bar in rainBars"
+                  :key="bar.key"
+                  class="rain-bar rounded-t-[3px]"
+                  :class="[bar.wet ? 'bg-accent' : 'bg-line', bar.inWindow ? 'in-window' : 'out-window', {'is-hovered': rainReadout?.index === bar.key}]"
+                  :style="{height: `${bar.height}px`}"
+              ></span>
+            </div>
+            <div
+                v-if="rainReadout"
+                class="rain-tip pointer-events-none absolute bottom-[calc(100%+6px)] z-10 flex flex-col gap-1 rounded-md px-2.5 py-2"
+                :style="rainReadout.flip
+                  ? {right: `calc(${100 - rainReadout.left}% - 14px)`}
+                  : {left: `calc(${rainReadout.left}% - 14px)`}"
+            >
+              <span class="t-note t-read text-[0.75rem]">{{ rainReadout.time }}</span>
+              <span class="whitespace-nowrap text-[0.8125rem] font-semibold" :class="rainReadout.amount ? 'text-accent' : 'text-ink'">
+                {{ rainReadout.title }}<template v-if="rainReadout.amount"> · {{ rainReadout.amount }}</template>
+              </span>
+              <span v-if="rainReadout.chance" class="whitespace-nowrap text-[0.75rem] text-dim">{{ rainReadout.chance }}</span>
+            </div>
           </div>
           <div class="relative mt-2 h-4 t-note text-[0.75rem]">
             <span
@@ -370,6 +447,35 @@ const forecast = computed(() =>
 
 /* Bars outside the chosen window shrink to nothing, so switching between
    1, 2 and 3 hours stretches or squeezes the row instead of redrawing it. */
+.rain-chart {
+  touch-action: pan-y;
+  cursor: default;
+  border-radius: 4px;
+}
+
+.rain-chart:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+/* While reading one slot, the others step back. */
+.is-reading .rain-bar.in-window:not(.is-hovered) {
+  opacity: 0.45;
+}
+
+.rain-tip {
+  background: rgb(58 58 60);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  animation: rain-tip-in 120ms ease-out both;
+}
+
+@keyframes rain-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
 .rain-bar {
   flex: 1 1 0;
   min-width: 0;

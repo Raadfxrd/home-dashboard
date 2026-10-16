@@ -17,6 +17,7 @@ const RADARR_API_KEY = process.env.RADARR_API_KEY || '';
 const DAYS_AHEAD = Math.max(1, Math.min(31, Number(process.env.UPCOMING_DAYS || 7)));
 const TIMEOUT_MS = 10000;
 const LOOKAHEAD_DAYS = 60;
+const LATER_MAX = 4;
 
 function window() {
 	const start = new Date();
@@ -159,19 +160,24 @@ router.get('/', async (_req, res) => {
 	const byTime = (a, b) => Date.parse(a.at) - Date.parse(b.at) || a.title.localeCompare(b.title);
 	const items = [...episodes, ...movies].sort(byTime);
 
-	/* A quiet week: look further ahead for the next thing that is coming,
-	   so the section still says something useful. */
-	let next = null;
-	if (!items.length) {
-		const far = {start: span.end, end: new Date(span.end.getTime() + LOOKAHEAD_DAYS * 86400000)};
-		const later = await Promise.all([
-			configured.sonarr && !failed.some((f) => f.service === 'sonarr') ? fetchSonarr(far).catch(() => []) : [],
-			configured.radarr && !failed.some((f) => f.service === 'radarr') ? fetchRadarr(far).catch(() => []) : [],
-		]);
-		next = later.flat().sort(byTime)[0] || null;
+	/* What comes after this week, always: the section's "Later" row. One
+	   entry per title (a film's disc date after its digital one isn't news). */
+	const far = {start: span.end, end: new Date(span.end.getTime() + LOOKAHEAD_DAYS * 86400000)};
+	const beyond = await Promise.all([
+		configured.sonarr && !failed.some((f) => f.service === 'sonarr') ? fetchSonarr(far).catch(() => []) : [],
+		configured.radarr && !failed.some((f) => f.service === 'radarr') ? fetchRadarr(far).catch(() => []) : [],
+	]);
+	const seen = new Set(items.map((i) => i.title));
+	const later = [];
+	for (const item of beyond.flat().sort(byTime)) {
+		if (seen.has(item.title)) continue;
+		seen.add(item.title);
+		later.push(item);
+		if (later.length >= LATER_MAX) break;
 	}
+	const next = later[0] || null;
 
-	const payload = {configured, items, next, lookahead: LOOKAHEAD_DAYS, failed, days: DAYS_AHEAD, from: span.start.toISOString(), to: span.end.toISOString()};
+	const payload = {configured, items, next, later, lookahead: LOOKAHEAD_DAYS, failed, days: DAYS_AHEAD, from: span.start.toISOString(), to: span.end.toISOString()};
 	// Don't hold on to a half-failed answer for long.
 	cache.set('upcoming', payload, failed.length ? 60 : 600);
 	res.json(payload);

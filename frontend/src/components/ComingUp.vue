@@ -57,11 +57,13 @@ const busyDays = computed(() => days.value.filter((d) => d.items.length));
 const quietWeek = computed(() => !busyDays.value.length);
 
 const nextFmt = new Intl.DateTimeFormat('en-GB', {weekday: 'short', day: 'numeric', month: 'short'});
-const next = computed(() => {
-  const n = props.data?.next;
-  if (!n) return null;
-  return {...n, when: nextFmt.format(new Date(n.at))};
-});
+
+/* After the week: the next few things further out, always shown, so a
+   release a month away doesn't vanish the moment the week fills up. */
+const later = computed(() =>
+  (props.data?.later || (props.data?.next ? [props.data.next] : []))
+    .map((n) => ({...n, when: nextFmt.format(new Date(n.at))}))
+);
 
 const failures = computed(() =>
   (props.data?.failed || []).map((f) => {
@@ -111,16 +113,7 @@ const failures = computed(() =>
       <!-- A week with nothing in it: one line, and what comes after. -->
       <div v-if="quietWeek" class="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
         <p class="t-body text-dim">Nothing new in the next {{ data?.days || 7 }} days.</p>
-        <button v-if="next" type="button" class="upcoming-item press -m-1.5 flex min-w-0 items-center gap-3 rounded-md p-1.5 text-left" @click="detail.open('upcoming', next, $event)">
-          <span class="well aspect-[2/3] w-8 shrink-0 overflow-hidden rounded-[5px]">
-            <img v-if="next.poster" :src="next.poster" alt="" class="h-full w-full object-cover" loading="lazy"/>
-          </span>
-          <span class="min-w-0">
-            <span class="block truncate text-[0.875rem] text-ink">Next up: {{ next.title }}</span>
-            <span class="block truncate t-note text-[0.75rem]">{{ next.subtitle }} · {{ next.when }}</span>
-          </span>
-        </button>
-        <p v-else class="t-note">Nothing scheduled in the next {{ data?.lookahead || 60 }} days either.</p>
+        <p v-if="!later.length" class="t-note">Nothing scheduled in the next {{ data?.lookahead || 60 }} days either.</p>
       </div>
 
       <!-- Wide: the week as seven columns. -->
@@ -171,6 +164,24 @@ const failures = computed(() =>
             </li>
           </ul>
         </div>
+      </div>
+
+      <!-- Later: beyond this week, within the lookahead. -->
+      <div v-if="later.length" class="flex flex-col gap-x-8 gap-y-2 border-t border-line-soft px-4 py-3 lg:flex-row lg:items-center">
+        <h3 class="shrink-0 text-[0.75rem] font-semibold text-dim">Later</h3>
+        <ul class="flex min-w-0 flex-1 flex-col gap-1 lg:grid lg:gap-4" :style="{gridTemplateColumns: `repeat(${later.length}, minmax(0, 1fr))`}">
+          <li v-for="item in later" :key="item.id" class="min-w-0">
+            <button type="button" class="upcoming-item press -mx-1.5 flex w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md p-1.5 text-left" @click="detail.open('upcoming', item, $event)">
+              <span class="well aspect-[2/3] w-7 shrink-0 overflow-hidden rounded-[4px]">
+                <img v-if="item.poster" :src="item.poster" alt="" class="h-full w-full object-cover" loading="lazy"/>
+              </span>
+              <span class="min-w-0 flex-1">
+                <span class="block truncate text-[0.8125rem] text-ink">{{ item.title }}</span>
+                <span class="block truncate text-[0.6875rem] text-faint">{{ item.subtitle }} · {{ item.when }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
       </div>
     </div>
   </section>

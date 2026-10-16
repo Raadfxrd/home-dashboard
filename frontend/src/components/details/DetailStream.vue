@@ -45,8 +45,8 @@ const rows = computed(() => [
 </script>
 
 <template>
-  <article>
-    <div class="flex gap-5 p-6 pb-4">
+  <article class="p-6">
+    <div class="flex gap-5 pb-4">
       <span class="well aspect-[2/3] w-24 shrink-0 overflow-hidden rounded-[10px]">
         <img v-if="s.poster" :src="s.poster" :alt="s.title" class="h-full w-full object-cover"/>
       </span>
@@ -60,7 +60,7 @@ const rows = computed(() => [
       </div>
     </div>
 
-    <div class="px-6">
+    <div>
       <span class="well block h-1 overflow-hidden rounded-full">
         <span class="block h-full rounded-full" :class="s.paused ? 'bg-dim' : 'bg-ink'" :style="{width: `${s.progress}%`}"></span>
       </span>
@@ -70,21 +70,19 @@ const rows = computed(() => [
       </p>
     </div>
 
-    <div class="px-6 pb-6">
-      <DetailRows class="mt-3" :rows="rows"/>
+    <DetailRows class="mt-3" :rows="rows"/>
 
-      <div v-if="d.transcodeReasons?.length" class="mt-4 rounded-md bg-line-soft/60 p-3">
-        <p class="text-[0.8125rem] font-semibold text-warn">Why it's transcoding</p>
-        <ul class="mt-1.5 list-disc pl-5 text-[0.8125rem] text-dim">
-          <li v-for="r in d.transcodeReasons" :key="r" class="first-letter:uppercase">{{ r }}</li>
-        </ul>
-      </div>
-
-      <p v-if="d.overview" class="mt-5 text-[0.875rem] leading-relaxed text-dim">{{ d.overview }}</p>
-
-      <a :href="s.url" target="_blank" rel="noopener noreferrer" class="press mt-6 inline-flex items-center gap-2 rounded-full bg-line-soft px-4 py-2.5 text-[0.875rem] text-ink hover:bg-line">
-        Open in Jellyfin <AppIcon :size="15" name="external"/>
-      </a>
+    <div v-if="d.transcodeReasons?.length" class="mt-4 rounded-md bg-line-soft/60 p-3">
+      <p class="text-[0.8125rem] font-semibold text-warn">Why it's transcoding</p>
+      <ul class="mt-1.5 list-disc pl-5 text-[0.8125rem] text-dim">
+        <li v-for="r in d.transcodeReasons" :key="r" class="first-letter:uppercase">{{ r }}</li>
+      </ul>
     </div>
+
+    <p v-if="d.overview" class="mt-5 text-[0.875rem] leading-relaxed text-dim">{{ d.overview }}</p>
+
+    <a :href="s.url" target="_blank" rel="noopener noreferrer" class="press mt-6 inline-flex items-center gap-2 rounded-full bg-line-soft px-4 py-2.5 text-[0.875rem] text-ink hover:bg-line">
+      Open in Jellyfin <AppIcon :size="15" name="external"/>
+    </a>
   </article>
 </template>

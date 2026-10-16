@@ -133,6 +133,9 @@ const nas = computed(() => homeStore.serviceStatus.nasMetrics);
 
 /* What to wear: for your next appointment somewhere, otherwise the next few
    hours (or tomorrow, late in the evening). */
+// Room under the clock: each stream card takes about three agenda rows.
+const agendaBudget = computed(() => Math.max(4, 11 - 3 * Math.min(2, jellyfinStore.nowPlaying.length)));
+
 const wearPlan = computed(() =>
   planFor(outingWindow(homeStore.calendar?.events || [], nowMs.value), {
     here: weatherStore.amsterdamWeather,
@@ -159,7 +162,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="relative z-10 flex min-h-dvh flex-col">
+  <div class="relative z-10 flex min-h-dvh flex-col overflow-x-clip">
 
     <!-- The one translucent layer in the interface. Content runs under it. -->
     <header class="chrome sticky top-0 z-30 border-b border-line-soft">
@@ -187,7 +190,7 @@ onUnmounted(() => {
           :plan="wearPlan"
       >
         <template #live>
-          <AgendaList :calendar="homeStore.calendar" :now="nowMs"/>
+          <AgendaList :calendar="homeStore.calendar" :now="nowMs" :budget="agendaBudget"/>
           <Transition name="slot">
             <NowPlaying v-if="jellyfinStore.nowPlaying.length" class="mt-auto" compact :sessions="jellyfinStore.nowPlaying"/>
           </Transition>

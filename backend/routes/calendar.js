@@ -21,7 +21,7 @@ const ONLY = String(process.env.CALENDAR_NAMES || '')
 	.split(',')
 	.map((n) => n.trim().toLowerCase())
 	.filter(Boolean);
-const DAYS = Math.max(1, Math.min(7, Number(process.env.CALENDAR_DAYS || 2)));
+const DAYS = Math.max(1, Math.min(14, Number(process.env.CALENDAR_DAYS || 7)));
 const CACHE_MS = 10 * 60 * 1000;
 
 // Calendars that are never about going somewhere.

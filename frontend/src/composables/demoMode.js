@@ -343,9 +343,16 @@ function demoUpcoming() {
 	];
 	// ?quiet=1 previews a week with nothing in it.
 	if (new URLSearchParams(location.search).get('quiet')) {
-		return {configured: {sonarr: true, radarr: true}, items: [], next: {...items[3], at: day(19, 21)}, lookahead: 60, failed: [], days: 7};
+		const next = {...items[3], at: day(19, 21)};
+		return {configured: {sonarr: true, radarr: true}, items: [], next, later: [next], lookahead: 60, failed: [], days: 7};
 	}
-	return {configured: {sonarr: true, radarr: true}, items, failed: [], days: 7};
+	const later = [
+		{id: 'l1', kind: 'movie', title: 'The Backrooms', subtitle: 'On disc · 2026', at: day(23, 0), allDay: true, hasFile: false, poster: p(7),
+			details: {overview: 'A found-footage descent into an endless maze of yellow rooms.', studio: 'A24', runtimeMin: 104, genres: ['Horror'], releases: [{label: 'Digital release', at: day(-12, 0)}, {label: 'On disc', at: day(23, 0)}], app: 'Radarr', link: '#'}},
+		{id: 'l2', kind: 'episode', title: 'Northbound', subtitle: 'S02E01 · Return', at: day(31, 21), allDay: false, hasFile: false, poster: p(2)},
+		{id: 'l3', kind: 'movie', title: 'Quiet Harbour', subtitle: 'Digital release · 2026', at: day(44, 0), allDay: true, hasFile: false, poster: p(8)},
+	];
+	return {configured: {sonarr: true, radarr: true}, items, next: later[0], later, lookahead: 60, failed: [], days: 7};
 }
 
 function demoContainers() {
@@ -398,6 +405,10 @@ function demoCalendar() {
 		{id: 'e2', title: 'Dentist', start: soon.toISOString(), end: new Date(soon.getTime() + 3600000).toISOString(), allDay: false, out: true, location: 'Grote Markt 2, Haarlem', calendar: 'Personal'},
 		{id: 'e3', title: 'Dinner with Emile', start: at(0, 19), end: at(0, 21, 30), allDay: false, out: true, location: 'Restaurant ML, Haarlem', calendar: 'Personal'},
 		{id: 'e4', title: 'Studio Dark Tech', start: at(1, 10), end: at(1, 16), allDay: false, out: true, location: 'Wibautstraat 2, Amsterdam', calendar: 'School'},
+		{id: 'e5', title: 'Gym', start: at(1, 18), end: at(1, 19), allDay: false, out: true, location: 'Basic-Fit, Haarlem', calendar: 'Personal'},
+		{id: 'e6', title: 'Family lunch', start: at(2, 12, 30), end: at(2, 14, 30), allDay: false, out: true, location: 'Zandvoort', calendar: 'Home'},
+		{id: 'e7', title: 'Sprint review', start: at(3, 14), end: at(3, 15), allDay: false, out: false, location: null, calendar: 'Work'},
+		{id: 'e8', title: 'Moving boxes', start: at(4, 0), end: at(5, 0), allDay: true, out: false, location: null, calendar: 'Home'},
 	];
 	return {configured: true, online: true, calendars: ['Home', 'Work', 'Personal', 'School'], events, error: null};
 }

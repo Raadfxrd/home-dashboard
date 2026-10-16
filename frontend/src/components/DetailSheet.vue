@@ -10,9 +10,10 @@ import DetailWear from './details/DetailWear.vue';
 import AppIcon from './AppIcon.vue';
 
 /**
- * One detail panel for the whole dashboard. It grows out of the card that
- * was clicked and shrinks back into it when closed, so it is always clear
- * where it came from. Escape, the close button or a click outside closes
+ * One detail panel for the whole dashboard. It rises out of the direction
+ * of the card that was clicked (a short drift and a gentle scale, never a
+ * stretch), then its contents settle in one after another. Closing sends it
+ * back toward the card. Escape, the close button or a click outside closes
  * it; focus moves into the panel and back to the card afterwards.
  */
 const store = useDetailStore();
@@ -30,8 +31,10 @@ const shown = shallowRef(null);
 const phase = ref('closed'); // opening | open | closing | closed
 const panel = ref(null);
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-const OPEN_MS = 440;
-const CLOSE_MS = 300;
+const OPEN_MS = 420;
+const CLOSE_MS = 220;
+const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)';
 let closeTimer = null;
 
 function rectOf(el) {
@@ -41,30 +44,35 @@ function rectOf(el) {
   return onScreen ? r : null;
 }
 
-/* The transform that makes the panel sit exactly on top of the card. */
-function fromOrigin(el, origin) {
+/* A hint of where the panel came from: part of the way toward the card's
+   centre, uniformly scaled down, so nothing ever looks squashed. */
+function towardOrigin(el, origin, scale) {
+  if (!origin) return `translateY(12px) scale(${scale})`;
   const target = el.getBoundingClientRect();
-  return `translate(${origin.left - target.left}px, ${origin.top - target.top}px) scale(${origin.width / target.width}, ${origin.height / target.height})`;
+  const dx = (origin.left + origin.width / 2 - (target.left + target.width / 2)) * 0.18;
+  const dy = (origin.top + origin.height / 2 - (target.top + target.height / 2)) * 0.18;
+  return `translate(${dx}px, ${dy}px) scale(${scale})`;
 }
 
 async function openWith(entry) {
   clearTimeout(closeTimer);
+  shown.value = null;
+  await nextTick(); // a fresh mount restarts the content stagger
   shown.value = entry;
   phase.value = 'opening';
   document.documentElement.style.overflow = 'hidden';
   await nextTick();
   const el = panel.value;
   if (!el) return;
-  const origin = rectOf(entry.origin);
   el.style.transition = 'none';
-  el.style.transformOrigin = 'top left';
-  el.style.transform = !reduceMotion && origin ? fromOrigin(el, origin) : reduceMotion ? 'none' : 'scale(0.96)';
+  el.style.transformOrigin = 'center';
+  el.style.transform = reduceMotion ? 'none' : towardOrigin(el, rectOf(entry.origin), 0.94);
   el.style.opacity = '0';
   el.getBoundingClientRect(); // commit the starting frame
   requestAnimationFrame(() => {
     el.style.transition = reduceMotion
       ? 'opacity 160ms linear'
-      : `transform ${OPEN_MS}ms var(--ease), opacity 180ms var(--ease)`;
+      : `transform ${OPEN_MS}ms ${EASE_OUT}, opacity 200ms ${EASE_OUT}`;
     el.style.transform = 'none';
     el.style.opacity = '1';
     phase.value = 'open';
@@ -80,12 +88,10 @@ function closeAnim() {
     return;
   }
   phase.value = 'closing';
-  const origin = rectOf(entry.origin);
-  el.style.transformOrigin = 'top left';
   el.style.transition = reduceMotion
     ? 'opacity 140ms linear'
-    : `transform ${CLOSE_MS}ms var(--ease), opacity ${CLOSE_MS}ms var(--ease)`;
-  if (!reduceMotion) el.style.transform = origin ? fromOrigin(el, origin) : 'scale(0.96)';
+    : `transform ${CLOSE_MS}ms ${EASE_IN}, opacity ${CLOSE_MS}ms ${EASE_IN}`;
+  if (!reduceMotion) el.style.transform = towardOrigin(el, rectOf(entry.origin), 0.96);
   el.style.opacity = '0';
   closeTimer = setTimeout(() => finish(entry), reduceMotion ? 140 : CLOSE_MS);
 }
@@ -170,7 +176,11 @@ onUnmounted(() => {
   background: rgb(0 0 0 / 0.55);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  transition: opacity 360ms var(--ease);
+  transition: opacity 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.is-closing .sheet-scrim {
+  transition-duration: 220ms;
 }
 
 .is-opening .sheet-scrim,
@@ -186,16 +196,74 @@ onUnmounted(() => {
   will-change: transform, opacity;
 }
 
-/* While the panel is still stretching out of the card its contents would
-   look squashed, so they arrive a moment later and leave first. */
-.sheet-body {
-  transition: opacity 200ms var(--ease) 120ms;
+/* Staggered content: each block of the view (heading, rows, overview,
+   buttons…) rises and sharpens a beat after the one before it. Keyframes
+   rather than transitions, so blocks that arrive later (a loaded overview)
+   settle in the same way. */
+.sheet-body :deep(article > :not(dl):not(ul)),
+.sheet-body :deep(article dl > div),
+.sheet-body :deep(article ul > li) {
+  animation: sheet-item 460ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(70ms + var(--i, 9) * 38ms);
 }
 
-.is-opening .sheet-body,
+.sheet-body :deep(article > :nth-child(1)) { --i: 0; }
+.sheet-body :deep(article > :nth-child(2)) { --i: 1; }
+.sheet-body :deep(article > :nth-child(3)) { --i: 2; }
+.sheet-body :deep(article > :nth-child(4)) { --i: 3; }
+.sheet-body :deep(article > :nth-child(5)) { --i: 4; }
+.sheet-body :deep(article > :nth-child(6)) { --i: 5; }
+.sheet-body :deep(article > :nth-child(7)) { --i: 6; }
+.sheet-body :deep(article > :nth-child(8)) { --i: 7; }
+
+/* Lists inside the view (detail rows, the outfit) continue the cascade
+   row by row from where their block sits. */
+.sheet-body :deep(article dl > div),
+.sheet-body :deep(article ul > li) {
+  animation-delay: calc(70ms + var(--i, 9) * 38ms + var(--r, 8) * 30ms);
+}
+
+.sheet-body :deep(article :is(dl, ul) > :nth-child(1)) { --r: 0; }
+.sheet-body :deep(article :is(dl, ul) > :nth-child(2)) { --r: 1; }
+.sheet-body :deep(article :is(dl, ul) > :nth-child(3)) { --r: 2; }
+.sheet-body :deep(article :is(dl, ul) > :nth-child(4)) { --r: 3; }
+.sheet-body :deep(article :is(dl, ul) > :nth-child(5)) { --r: 4; }
+.sheet-body :deep(article :is(dl, ul) > :nth-child(6)) { --r: 5; }
+.sheet-body :deep(article :is(dl, ul) > :nth-child(7)) { --r: 6; }
+
+@keyframes sheet-item {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* Leaving is one quick movement, contents and all. */
 .is-closing .sheet-body {
   opacity: 0;
-  transition-delay: 0ms;
+  transition: opacity 120ms linear;
+}
+
+.sheet-close {
+  transition: color 120ms var(--ease), opacity 260ms var(--ease) 160ms;
+}
+
+.is-opening .sheet-close {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet-body :deep(article > :not(dl):not(ul)),
+  .sheet-body :deep(article dl > div),
+  .sheet-body :deep(article ul > li) {
+    animation: none;
+  }
 }
 
 .sheet-close {

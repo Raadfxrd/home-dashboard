@@ -443,15 +443,23 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="box" class="weather-backdrop pointer-events-none absolute inset-0 overflow-hidden" :class="{'is-fading': fading}" aria-hidden="true">
+  <div ref="box" class="weather-backdrop pointer-events-none absolute overflow-hidden" :class="{'is-fading': fading}" aria-hidden="true">
     <canvas ref="skyCanvas" class="absolute inset-0 h-full w-full"></canvas>
     <canvas ref="fallCanvas" class="absolute inset-0 h-full w-full"></canvas>
   </div>
 </template>
 
 <style scoped>
-/* Fade out at the bottom so the weather dissolves into the page. */
+/* Full-bleed: the hero sits in a centred column, but the weather spans the
+   whole window and runs up under the translucent header. The page clips
+   the horizontal overflow (Dashboard root). Fades out at the bottom so the
+   weather dissolves into the page. */
 .weather-backdrop {
+  top: -4rem;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  margin-left: -50vw;
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
   transition: opacity 450ms var(--ease);

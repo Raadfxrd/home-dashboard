@@ -9,10 +9,12 @@
  *          snow, clouds, daylight, conditionId}
  */
 
+/* One outer layer per window, by the coldest feels-like moment. Each step
+   is a single garment, never two that contradict each other. */
 const LAYERS = [
-	{min: 24, key: 'tshirt', icon: 'tshirt', label: 'T-shirt'},
-	{min: 18, key: 'tshirt-layer', icon: 'tshirt', label: 'T-shirt with a light layer'},
-	{min: 13, key: 'sweater', icon: 'sweater', label: 'Sweater or light jacket'},
+	{min: 22, key: 'tshirt', icon: 'tshirt', label: 'T-shirt'},
+	{min: 17, key: 'light', icon: 'sweater', label: 'Long sleeves'},
+	{min: 12, key: 'sweater', icon: 'sweater', label: 'Sweater'},
 	{min: 7, key: 'jacket', icon: 'jacket', label: 'Jacket'},
 	{min: 1, key: 'coat', icon: 'coat', label: 'Warm coat'},
 	{min: -Infinity, key: 'winter', icon: 'coat', label: 'Winter coat'},
