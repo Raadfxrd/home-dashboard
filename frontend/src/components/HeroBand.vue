@@ -107,8 +107,6 @@ const rainBars = computed(() => {
       key: i,
       ...slot,
       wet,
-      // Forecast rain is a chance, not a measurement: paler when it's unlikely.
-      faint: !slot.measured && (slot.rainChance ?? 100) < 40,
       height: grown.value && wet ? Math.round(6 + level * 50) : 2,
       tick,
       day: midnight,
@@ -362,7 +360,7 @@ const forecast = computed(() =>
                 >
                   <span
                       class="rain-bar block w-full rounded-t-[3px]"
-                      :class="[bar.wet ? 'bg-accent' : 'bg-line', {'is-faint': bar.faint && bar.wet, 'is-hovered': rainReadout?.index === bar.key}]"
+                      :class="[bar.wet ? 'bg-accent' : 'bg-line', {'is-hovered': rainReadout?.index === bar.key}]"
                       :style="{height: `${bar.height}px`}"
                   ></span>
                   <span v-if="bar.tick" class="rain-tick t-read t-note absolute left-0 top-full mt-2 whitespace-nowrap text-[0.75rem]" :class="{'text-dim': bar.day}">{{ bar.tick }}</span>
@@ -588,10 +586,6 @@ const forecast = computed(() =>
 
 .rain-bar {
   transition: height 600ms var(--ease), opacity 160ms var(--ease);
-}
-
-.rain-bar.is-faint {
-  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {
