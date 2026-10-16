@@ -169,19 +169,19 @@ onUnmounted(() => {
           :outlook="weatherStore.outlook"
           :outlook-loading="weatherStore.outlookLoading"
           :is-loading="weatherStore.isLoading && !weatherStore.amsterdamWeather"
-      />
+      >
+        <template #live>
+          <Transition name="slot">
+            <NowPlaying v-if="jellyfinStore.nowPlaying.length" compact :sessions="jellyfinStore.nowPlaying"/>
+          </Transition>
+        </template>
+      </HeroBand>
 
       <!-- A grid that does not rearrange itself as data lands. Everything
            keeps its place so it can be found without reading. -->
       <main class="grid grid-cols-1 gap-x-8 gap-y-10 px-5 pb-14 md:px-9 xl:grid-cols-12">
         <!-- One section per row, full width, in order of how often you look:
-             what's playing, the NAS, downloads, the week, then the library. -->
-        <Transition name="slot">
-          <div v-if="jellyfinStore.nowPlaying.length" class="xl:col-span-12">
-            <NowPlaying :sessions="jellyfinStore.nowPlaying"/>
-          </div>
-        </Transition>
-
+             the NAS, downloads, the week, then the library. -->
         <div class="xl:col-span-12">
           <SystemReadout
               :metrics="nas"

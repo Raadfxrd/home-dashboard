@@ -147,10 +147,10 @@ const forecast = computed(() =>
         :wind-speed="here.windSpeed"
     />
 
-    <div class="relative flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between lg:gap-14">
+    <div class="hero-grid relative">
 
       <!-- Time, the thing you are most often here to read. -->
-      <div class="min-w-0">
+      <div class="hero-clock min-w-0">
         <h1 class="t-hero t-read flex items-baseline">
           <RollingNumber :value="hours" digit-width="0.57em" fallback="--"/>
           <span class="mx-[-0.015em] text-faint">:</span>
@@ -159,7 +159,7 @@ const forecast = computed(() =>
         <p class="mt-3 text-[1.0625rem] tracking-[-0.015em] text-dim">{{ date }}</p>
       </div>
 
-      <div v-if="isLoading" class="flex w-full max-w-[40rem] flex-col gap-7" aria-busy="true" aria-label="Loading the weather">
+      <div v-if="isLoading" class="hero-weather flex w-full max-w-[40rem] flex-col gap-7" aria-busy="true" aria-label="Loading the weather">
         <div class="flex items-end gap-4" aria-hidden="true">
           <span class="skeleton h-[3.25rem] w-28"></span>
           <span class="flex flex-col gap-2 pb-1">
@@ -184,7 +184,7 @@ const forecast = computed(() =>
         </div>
       </div>
 
-      <div v-else-if="here" class="reveal flex w-full max-w-[40rem] flex-col gap-7">
+      <div v-else-if="here" class="hero-weather reveal flex w-full max-w-[40rem] flex-col gap-7">
 
         <!-- Now -->
         <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
@@ -295,12 +295,52 @@ const forecast = computed(() =>
         </div>
       </div>
 
-      <p v-else class="t-note">Weather unavailable</p>
+      <p v-else class="hero-weather t-note">Weather unavailable</p>
+
+      <!-- Live activity (what's playing) sits under the clock on wide
+           screens and after the weather on narrow ones. -->
+      <div v-if="$slots.live" class="hero-live min-w-0">
+        <slot name="live"/>
+      </div>
     </div>
   </section>
 </template>
 
 <style scoped>
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'clock' 'weather' 'live';
+  row-gap: 2.5rem;
+}
+
+@media (min-width: 1024px) {
+  .hero-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 40rem);
+    grid-template-areas: 'clock weather' 'live weather';
+    grid-template-rows: auto 1fr;
+    column-gap: 3.5rem;
+    row-gap: 2rem;
+    align-items: start;
+  }
+
+  .hero-live {
+    align-self: end;
+  }
+}
+
+.hero-clock {
+  grid-area: clock;
+}
+
+.hero-weather {
+  grid-area: weather;
+}
+
+.hero-live {
+  grid-area: live;
+}
+
 /* Bars outside the chosen window shrink to nothing, so switching between
    1, 2 and 3 hours stretches or squeezes the row instead of redrawing it. */
 .rain-bar {

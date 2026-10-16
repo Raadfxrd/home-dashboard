@@ -7,6 +7,8 @@
  */
 defineProps({
   sessions: {type: Array, default: () => []},
+  // In the top band: a small label and one column of cards.
+  compact: {type: Boolean, default: false},
 });
 
 function clock(seconds) {
@@ -37,20 +39,25 @@ function method(s) {
 </script>
 
 <template>
-  <section class="settle">
-    <header class="mb-4 flex items-baseline justify-between gap-4">
-      <h2 class="t-section">Now playing</h2>
+  <section class="settle" :class="compact ? 'max-w-[36rem]' : ''">
+    <header class="flex items-baseline justify-between gap-4" :class="compact ? 'mb-2.5' : 'mb-4'">
+      <h2 :class="compact ? 'text-[0.8125rem] font-semibold text-dim' : 't-section'">Now playing</h2>
       <p class="t-note">{{ sessions.length === 1 ? '1 stream' : `${sessions.length} streams` }}</p>
     </header>
 
-    <TransitionGroup name="np" tag="div" class="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+    <TransitionGroup
+        name="np"
+        tag="div"
+        class="grid grid-cols-1 gap-3"
+        :class="compact ? '' : 'md:grid-cols-2 2xl:grid-cols-3'"
+    >
       <a
           v-for="s in sessions"
           :key="s.id"
           :href="s.url"
           target="_blank"
           rel="noopener noreferrer"
-          class="panel press group flex gap-4 p-3"
+          class="np-card panel press group flex gap-4 p-3"
       >
         <span class="well relative aspect-[2/3] w-16 shrink-0 overflow-hidden rounded-[8px]">
           <img v-if="s.poster" :src="s.poster" :alt="s.title" class="h-full w-full object-cover" loading="lazy"/>
@@ -87,6 +94,19 @@ function method(s) {
 </template>
 
 <style scoped>
+.np-card {
+  background: rgb(var(--raised-rgb) / 0.82);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .np-card {
+    background: rgb(var(--raised-rgb));
+    backdrop-filter: none;
+  }
+}
+
 .np-enter-active,
 .np-leave-active {
   transition: opacity 300ms var(--ease), transform 300ms var(--ease);
