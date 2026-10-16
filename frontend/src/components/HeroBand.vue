@@ -49,9 +49,9 @@ const meta = computed(() => {
 const rain = computed(() => props.outlook?.rain || null);
 const rainNow = computed(() => rain.value?.slots?.[0]?.mm || 0);
 
-/* One scrollable rain timeline: the radar first (5-minute steps, the next
-   2-3 hours), then the forecast hour by hour for the rest of the 5 days.
-   The radar part is drawn wider per hour because it says more. */
+/* One scrollable rain timeline, hour by hour for the next 5 days. The
+   first hours come from the radar (its 5-minute readings averaged per
+   hour), the rest from the forecast. */
 const HOUR = 3600000;
 // Bars rise from the baseline the first time they appear. Declared before
 // anything reads it: on a return visit the weather is already loaded.
@@ -65,52 +65,53 @@ const hh = (t) => `${String(new Date(t).getHours()).padStart(2, '0')}:00`;
 
 const timeline = computed(() => {
   const now = Date.now();
-  const out = radarSlots.value.map((slot, i) => ({kind: 'radar', at: now + i * 5 * 60000, time: slot.time, mm: slot.mm || 0, rainChance: null}));
+  const radar = radarSlots.value.map((slot, i) => ({at: now + i * 5 * 60000, mm: slot.mm || 0}));
   const blocks = weekBlocks.value;
-  if (!blocks.length) return out;
-  const from = out.length ? out[out.length - 1].at + 5 * 60000 : now;
-  let t = Math.ceil(from / HOUR) * HOUR;
-  const last = blocks[blocks.length - 1].at + 1.5 * HOUR;
-  for (; t < last; t += HOUR) {
-    const b = blocks.find((x) => t >= x.at - 1.5 * HOUR && t < x.at + 1.5 * HOUR);
-    if (!b) continue;
-    out.push({kind: 'forecast', at: t, time: hh(t), mm: b.mm || 0, rainChance: b.rainChance ?? null});
+  const lastRadar = radar.length ? radar[radar.length - 1].at + 5 * 60000 : now;
+  const last = blocks.length ? blocks[blocks.length - 1].at + 1.5 * HOUR : lastRadar;
+  const out = [];
+  for (let t = Math.floor(now / HOUR) * HOUR; t < last; t += HOUR) {
+    const inHour = radar.filter((r) => r.at >= t && r.at < t + HOUR);
+    const block = blocks.find((x) => t >= x.at - 1.5 * HOUR && t < x.at + 1.5 * HOUR);
+    if (inHour.length >= 3) {
+      const mm = inHour.reduce((sum, r) => sum + r.mm, 0) / inHour.length;
+      out.push({at: t, time: hh(t), mm: Math.round(mm * 100) / 100, rainChance: block?.rainChance ?? null, measured: true});
+    } else if (block) {
+      out.push({at: t, time: hh(t), mm: block.mm || 0, rainChance: block.rainChance ?? null, measured: false});
+    }
   }
   return out;
 });
 
 /* Rain on a log-ish scale so a drizzle still shows and a downpour doesn't
    swamp everything else: 0.1 mm/h is a short bar, 4 mm/h fills the track. */
+const COL = 12; // px per hour, matches .rain-col
 const rainBars = computed(() => {
   let x = 0;
   let lastTick = -Infinity;
-  return timeline.value.map((slot, i, all) => {
+  return timeline.value.map((slot, i) => {
     const wet = slot.mm >= 0.1;
     const level = wet ? Math.min(1, Math.log10(1 + slot.mm) / Math.log10(5)) : 0;
     const d = new Date(slot.at);
-    const midnight = slot.kind === 'forecast' && d.getHours() === 0;
+    const midnight = i > 0 && d.getHours() === 0;
     let tick = null;
     if (i === 0) tick = 'Now';
-    else if (slot.kind === 'radar' && i % 12 === 0) tick = slot.time;
-    else if (slot.kind === 'forecast' && all[i - 1].kind === 'radar') tick = slot.time;
     else if (midnight) tick = dayName.format(d);
-    else if (slot.kind === 'forecast' && d.getHours() % 6 === 0 && all[i - 1]?.kind === 'forecast') tick = slot.time;
-    // Column widths match the CSS below; labels keep a little room apart.
-    const seam = slot.kind === 'forecast' && all[i - 1]?.kind === 'radar';
-    if (seam || midnight) x += 6;
-    if (tick && i > 0 && x - lastTick < 60) tick = null;
+    else if (d.getHours() % 6 === 0) tick = slot.time;
+    if (midnight) x += 6;
+    // Labels keep a little room apart; a new day always gets its name.
+    if (tick && i > 0 && !midnight && x - lastTick < 60) tick = null;
     if (tick) lastTick = x;
-    x += slot.kind === 'radar' ? 9 : 12;
+    x += COL;
     return {
       key: i,
       ...slot,
       wet,
       // Forecast rain is a chance, not a measurement: paler when it's unlikely.
-      faint: slot.kind === 'forecast' && (slot.rainChance ?? 100) < 40,
+      faint: !slot.measured && (slot.rainChance ?? 100) < 40,
       height: grown.value && wet ? Math.round(6 + level * 50) : 2,
       tick,
       day: midnight,
-      seam,
     };
   });
 });
@@ -120,7 +121,7 @@ const rainSummary = computed(() => {
     return describeRain(radarSlots.value, `next ${Math.round(radarSlots.value.length / 12)} hours`) || rain.value?.summary;
   }
   const day = timeline.value.slice(0, 24);
-  return day.length ? describeRain(day, 'next 24 hours', {minDry: 3}) : null;
+  return day.length ? describeRain(day, 'next 24 hours', {minDry: 2}) : null;
 });
 
 /* Hovering (or dragging a finger, or arrow keys) over a bar reads that
@@ -140,8 +141,7 @@ function intensity(mm) {
 
 const dayLong = new Intl.DateTimeFormat('en-GB', {weekday: 'long'});
 function whenText(bar) {
-  if (bar.key === 0) return `Now, ${bar.time}`;
-  if (bar.kind === 'radar') return bar.time;
+  if (bar.key === 0) return `Now, until ${hh(bar.at + HOUR)}`;
   const d = new Date(bar.at);
   const today = new Date();
   const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 86400000);
@@ -161,7 +161,6 @@ const rainReadout = computed(() => {
     title: intensity(bar.mm),
     amount: bar.wet ? `${bar.mm.toFixed(1)} mm/h` : null,
     chance: bar.rainChance != null ? `${bar.rainChance}% chance` : null,
-    source: bar.kind === 'radar' ? 'Radar' : 'Forecast',
   };
 });
 
@@ -359,7 +358,7 @@ const forecast = computed(() =>
                     :key="bar.key"
                     :data-i="bar.key"
                     class="rain-col relative flex h-14 items-end"
-                    :class="[bar.kind === 'radar' ? 'is-radar' : 'is-forecast', {'is-seam': bar.seam, 'is-day': bar.day}]"
+                    :class="{'is-day': bar.day}"
                 >
                   <span
                       class="rain-bar block w-full rounded-t-[3px]"
@@ -381,7 +380,7 @@ const forecast = computed(() =>
               <span class="whitespace-nowrap text-[0.8125rem] font-semibold" :class="rainReadout.amount ? 'text-accent' : 'text-ink'">
                 {{ rainReadout.title }}<template v-if="rainReadout.amount"> · {{ rainReadout.amount }}</template>
               </span>
-              <span class="whitespace-nowrap text-[0.75rem] text-dim">{{ [rainReadout.chance, rainReadout.source].filter(Boolean).join(' · ') }}</span>
+              <span v-if="rainReadout.chance" class="whitespace-nowrap text-[0.75rem] text-dim">{{ rainReadout.chance }}</span>
             </div>
           </div>
         </div>
@@ -532,26 +531,16 @@ const forecast = computed(() =>
 
 /* The baseline, drawn per column so it scrolls with the bars. */
 .rain-col {
+  width: 12px;
+  padding-right: 3px;
   border-bottom: 1px solid rgb(var(--line-rgb));
 }
 
-.rain-col.is-radar {
-  width: 9px;
-  padding-right: 2px;
-}
-
-.rain-col.is-forecast {
-  width: 12px;
-  padding-right: 3px;
-}
-
-/* Where the radar hands over to the forecast, and each new day. */
-.rain-col.is-seam,
+/* A thin line where each new day starts. */
 .rain-col.is-day {
   margin-left: 6px;
 }
 
-.rain-col.is-seam::before,
 .rain-col.is-day::before {
   content: '';
   position: absolute;
