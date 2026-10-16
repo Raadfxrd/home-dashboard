@@ -46,8 +46,8 @@
 
 	/* Glass: a faint light fill over whatever is behind, blurred, with a
 	   hairline edge catching the light at the top. */
-	--glass-fill: rgb(255 255 255 / 0.045);
-	--glass-fill-hover: rgb(255 255 255 / 0.075);
+	--glass-fill: rgb(255 255 255 / 0.055);
+	--glass-fill-hover: rgb(255 255 255 / 0.085);
 	--glass-edge: rgb(255 255 255 / 0.075);
 	--glass-blur: blur(28px) saturate(170%);
 	/* For things that float above other content: denser, so text on
@@ -92,7 +92,7 @@ body {
 
 @layer components {
 	/* ---- Surfaces -------------------------------------------------
-	   Frosted glass over a dim ambient light (App.vue) and the weather.
+	   Frosted glass: a neutral frost that blurs the weather behind it.
 	   Panels and cards share one material; wells sink into it. */
 
 	.panel,

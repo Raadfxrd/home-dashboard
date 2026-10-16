@@ -1,41 +1,28 @@
-import {onMounted, onUnmounted, ref, watch} from 'vue';
+import {onMounted, onUnmounted, ref} from 'vue';
+import {get} from './useApi.js';
 
 /**
- * Tracks whether anyone is using the page. After `minutes` without touch,
- * mouse, keyboard or scrolling it reports idle; any of those wakes it.
- * The chosen timeout is remembered per browser ('off' disables it).
+ * Tracks whether anyone is using the page. After the timeout set in the
+ * server's .env (IDLE_AFTER_MINUTES, default 5; 0 or "off" disables it)
+ * without touch, mouse, keyboard or scrolling it reports idle; any of
+ * those wakes it.
  *
- * ?idle=1 in the URL shortens every timeout to 5 seconds, to preview it.
+ * ?idle=1 in the URL shortens the timeout to 5 seconds, to preview it.
  */
-const KEY = 'dashboard.idleAfter';
-const OPTIONS = ['2', '5', '10', 'off'];
 const ACTIVITY = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'];
 const preview = typeof location !== 'undefined' && new URLSearchParams(location.search).get('idle') === '1';
 
-function readSetting() {
-	try {
-		const value = localStorage.getItem(KEY);
-		return OPTIONS.includes(value) ? value : '5';
-	} catch {
-		return '5';
-	}
-}
-
 export function useIdle() {
 	const idle = ref(false);
-	const after = ref(readSetting());
+	// Minutes, or null when the idle screen is off. Unknown until the server answers.
+	const after = ref(null);
 	let timer = null;
 	let lastMove = {x: -1, y: -1};
 
-	function timeoutMs() {
-		if (after.value === 'off') return null;
-		return preview ? 5000 : Number(after.value) * 60000;
-	}
-
 	function arm() {
 		clearTimeout(timer);
-		const ms = timeoutMs();
-		if (ms) timer = setTimeout(() => (idle.value = true), ms);
+		if (!after.value) return;
+		timer = setTimeout(() => (idle.value = true), preview ? 5000 : after.value * 60000);
 	}
 
 	function wake() {
@@ -58,18 +45,14 @@ export function useIdle() {
 		arm();
 	}
 
-	watch(after, (value) => {
-		try {
-			localStorage.setItem(KEY, value);
-		} catch {
-			// Storage blocked: the choice lasts until the page reloads.
-		}
-		if (value === 'off') idle.value = false;
-		arm();
-	});
-
-	onMounted(() => {
+	onMounted(async () => {
 		for (const type of ACTIVITY) window.addEventListener(type, onActivity, {passive: true, capture: true});
+		try {
+			const config = await get('/config');
+			after.value = config?.idleAfterMinutes ?? null;
+		} catch {
+			after.value = 5;
+		}
 		arm();
 	});
 
@@ -78,5 +61,5 @@ export function useIdle() {
 		for (const type of ACTIVITY) window.removeEventListener(type, onActivity, {capture: true});
 	});
 
-	return {idle, after, wake, options: OPTIONS};
+	return {idle, after, wake};
 }

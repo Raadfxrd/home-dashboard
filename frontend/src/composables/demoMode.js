@@ -441,6 +441,7 @@ function match(url = '') {
 	if (path === '/weather/outlook') return demoOutlook();
 	if (path === '/home/services-status') return servicesStatus();
 	if (path === '/jellyfin/now-playing') return demoNowPlaying();
+	if (path === '/config') return {idleAfterMinutes: new URLSearchParams(location.search).get('noidle') ? null : 5};
 	if (path === '/upcoming') return demoUpcoming();
 	if (path === '/calendar') return new URLSearchParams(location.search).get('nocal') ? {configured: false, events: []} : demoCalendar();
 	if (path.startsWith('/jellyfin/item/')) return demoItem(path);

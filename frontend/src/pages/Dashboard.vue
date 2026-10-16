@@ -10,7 +10,6 @@ import AppIcon from '../components/AppIcon.vue';
 import NowPlaying from '../components/NowPlaying.vue';
 import ComingUp from '../components/ComingUp.vue';
 import IdleScreen from '../components/IdleScreen.vue';
-import SegmentedControl from '../components/SegmentedControl.vue';
 import {useIdle} from '../composables/useIdle.js';
 import AgendaList from '../components/AgendaList.vue';
 import {outingWindow, planFor} from '../composables/dayPlan.js';
@@ -38,7 +37,7 @@ const jellyfinKey = ref(0);
 let clockTimer = null;
 let scheduleTimer = null;
 
-const {idle, after: idleAfter, wake} = useIdle();
+const {idle, wake} = useIdle();
 
 /* Everything that refreshes, with how often while someone is looking and
    while the screen is idle (null: not at all, because the idle screen
@@ -164,19 +163,6 @@ onUnmounted(() => {
 <template>
   <div class="relative z-10 flex min-h-dvh flex-col overflow-x-clip">
 
-    <!-- The one translucent layer in the interface. Content runs under it. -->
-    <header class="chrome sticky top-0 z-30 border-b border-line-soft">
-      <div class="mx-auto flex max-w-[1560px] items-center justify-between gap-4 px-5 py-3 md:px-9">
-        <span class="flex items-center gap-2.5">
-          <AppIcon :size="17" class="text-dim" name="home"/>
-          <span class="text-[0.875rem] font-medium tracking-[-0.01em] text-ink">Home</span>
-        </span>
-        <RouterLink class="link-quiet press flex items-center gap-1.5 text-[0.875rem]" to="/media/movies">
-          Library
-          <AppIcon :size="15" name="arrow"/>
-        </RouterLink>
-      </div>
-    </header>
 
     <div class="mx-auto w-full max-w-[1560px] flex-1">
       <HeroBand
@@ -262,15 +248,11 @@ onUnmounted(() => {
               :loading="!homeStore.statusLoaded"
               @clear-log="homeStore.clearLog()"
           />
-          <div class="flex items-center gap-2.5 t-note">
-            <span aria-hidden="true">Idle screen after</span>
-            <SegmentedControl
-                v-model="idleAfter"
-                :options="[{value: '2', label: '2 min'}, {value: '5', label: '5 min'}, {value: '10', label: '10 min'}, {value: 'off', label: 'Off'}]"
-                size="sm"
-                label="Idle screen after"
-            />
-          </div>
+          <RouterLink class="library-link glass press flex items-center gap-2 rounded-full px-4 py-2 text-[0.875rem] text-ink" to="/media/movies">
+            <AppIcon :size="16" class="text-dim" name="film"/>
+            Library
+            <AppIcon :size="14" class="text-faint" name="arrow"/>
+          </RouterLink>
         </div>
       </div>
     </footer>
@@ -289,6 +271,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.library-link {
+  transition: background-color 120ms var(--ease);
+}
+
+.library-link:hover {
+  background: var(--glass-fill-hover);
+}
+
+.library-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Eases into the idle screen slowly; snaps back quickly when touched. */
 .idle-enter-active {
   transition: opacity 1.2s var(--ease);

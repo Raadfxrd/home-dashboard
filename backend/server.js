@@ -36,6 +36,14 @@ app.get('/api/health', (_req, res) => {
 });
 
 // What went wrong recently, for the log in the dashboard's bottom bar.
+/* Settings the page reads at start. IDLE_AFTER_MINUTES sets the idle
+   screen's timeout; 0 or "off" turns the idle screen off. */
+app.get('/api/config', (_req, res) => {
+	const raw = String(process.env.IDLE_AFTER_MINUTES ?? '5').trim();
+	const minutes = /^(0|off|false|no)$/i.test(raw) ? null : Number(raw);
+	res.json({idleAfterMinutes: Number.isFinite(minutes) && minutes > 0 ? minutes : null});
+});
+
 app.get('/api/logs', (_req, res) => {
 	res.json({entries: issueLog.list(), clearedAt: issueLog.clearedAt()});
 });
