@@ -83,6 +83,8 @@ let nextFlashAt = 0;
 let obstacles = [];
 let lastScan = -1;
 let splashes = [];
+let settled = [];
+const SETTLED_MAX = 420;
 const SPLASH_MAX = 260;
 
 /* Where the cards are, relative to the canvas. Re-read twice a second:
@@ -95,20 +97,24 @@ function scanObstacles() {
     .map((el) => {
       const r = el.getBoundingClientRect();
       // Keep clear of the rounded corners.
-      return {left: r.left - b.left + 6, right: r.right - b.left - 6, top: r.top - b.top};
+      return {left: r.left - b.left + 6, right: r.right - b.left - 6, top: r.top - b.top, key: el};
     })
     .filter((o) => o.right - o.left > 12 && o.top > 0 && o.top < height);
 }
 
-function hitTop(x, fromY, toY) {
+function hitObstacle(x, fromY, toY) {
   for (const o of obstacles) {
-    if (x >= o.left && x <= o.right && fromY < o.top && toY >= o.top) return o.top;
+    if (x >= o.left && x <= o.right && fromY < o.top && toY >= o.top) return o;
   }
   return null;
 }
 
+function hitTop(x, fromY, toY) {
+  return hitObstacle(x, fromY, toY)?.top ?? null;
+}
+
 function splash(x, y, slant, strength) {
-  const n = 2 + Math.floor(Math.random() * 3);
+  const n = strength < 0.5 ? 1 + Math.floor(Math.random() * 2) : 2 + Math.floor(Math.random() * 3);
   for (let i = 0; i < n && splashes.length < SPLASH_MAX; i += 1) {
     splashes.push({
       x,
@@ -117,7 +123,7 @@ function splash(x, y, slant, strength) {
       vy: -(45 + Math.random() * 80) * strength,
       life: 0,
       ttl: 0.22 + Math.random() * 0.2,
-      r: 0.8 + Math.random() * 0.8,
+      r: (0.8 + Math.random() * 0.8) * (0.6 + strength * 0.4),
     });
   }
 }
@@ -264,7 +270,8 @@ function rainLook(i) {
     alpha: lerp(0.75, 1.5, (i - 0.3) / 0.7),
     width: lerp(0.75, 1.35, (i - 0.3) / 0.7),
     nearShare: lerp(0.08, 0.3, i),
-    splash: i < 0.35 ? 0 : lerp(0.35, 1, (i - 0.35) / 0.65),
+    // Drizzle still lands, just softly: fewer, smaller, lower bounces.
+    splash: lerp(0.35, 1, (i - 0.2) / 0.8),
   };
 }
 let look = rainLook(0.5);
@@ -348,7 +355,7 @@ function drawFall(dt, seconds) {
         // Mid and near drops land on the cards; the far layer passes behind.
         const top = layerIndex > 0 && obstacles.length ? hitTop(d.x, fromY, d.y) : null;
         if (top !== null) {
-          const chance = look.splash * (layerIndex === 2 ? 1 : 0.45);
+          const chance = look.splash * (layerIndex === 2 ? 1 : 0.7);
           if (Math.random() < chance) splash(d.x, top, slant, look.splash * (layerIndex === 2 ? 1 : 0.7));
           d.y = -Math.random() * 60;
           d.x = Math.random() * (width + height * slant) - height * slant;
@@ -385,12 +392,35 @@ function drawFall(dt, seconds) {
     ctx2d.globalAlpha = 1;
   }
 
+  // Snow resting on the cards' top edges, melting slowly. Positions follow
+  // the cards, so a layout change carries the snow with it.
+  if (settled.length) {
+    const byKey = new Map(obstacles.map((o) => [o.key, o]));
+    let keep = 0;
+    for (const p of settled) {
+      p.life += dt;
+      const o = byKey.get(p.key);
+      if (!o || p.life >= p.ttl) continue;
+      const fade = p.life > p.ttl * 0.65 ? 1 - (p.life - p.ttl * 0.65) / (p.ttl * 0.35) : 1;
+      // Melting: a little smaller as it goes.
+      const size = p.r * 3.2 * (0.6 + 0.4 * fade);
+      ctx2d.globalAlpha = (0.35 + p.z * 0.5) * fade;
+      ctx2d.drawImage(flakeSprite, o.left + p.dx - size / 2, o.top - size * 0.32, size, size);
+      settled[keep++] = p;
+    }
+    settled.length = keep;
+    ctx2d.globalAlpha = 1;
+  }
+
   if (flakes.length) {
     for (const f of flakes) {
       const fromY = f.y;
       f.y += f.speed * dt;
-      // Near flakes settle on the cards and vanish.
-      if (f.z > 0.55 && obstacles.length && hitTop(f.x, fromY, f.y) !== null) {
+      // Nearer flakes land on the cards, stay a while and melt away.
+      const landed = f.z > 0.3 && obstacles.length ? hitObstacle(f.x, fromY, f.y) : null;
+      if (landed) {
+        if (settled.length >= SETTLED_MAX) settled.shift();
+        settled.push({key: landed.key, dx: f.x - landed.left, r: f.r, z: f.z, life: 0, ttl: 6 + Math.random() * 8});
         f.y = -f.r * 2 - Math.random() * 40;
         f.x = Math.random() * width;
         continue;
@@ -451,6 +481,7 @@ function resize() {
 
 function reseed() {
   splashes = [];
+  settled = [];
   lastScan = -1;
   if (reduceMotion) {
     drops = [];
