@@ -7,7 +7,7 @@ import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
  * drifting noise), and a 2D canvas for falling precipitation in three depth
  * layers, so near drops are longer, brighter and faster than far ones.
  *
- * Good weather has its own look: a warm sun glow with slow rays on clear
+ * Good weather has its own look: a soft wash of warm light on clear
  * days, twinkling stars (and the odd shooting star) on clear nights, and
  * fast, faint gusts across the band when it's windy.
  *
@@ -195,33 +195,30 @@ void main() {
   // Fog: low, wide banks drifting slowly sideways.
   // Wind hurries the fog and cloud along.
   float t = u_time * 0.018 * (1.0 + u_wind * 2.5);
-  float f1 = fbm(uv * 1.4 + vec2(t, 0.0));
+  float f1 = fbm(uv * 1.4 - vec2(t, 0.0));
   float f2 = fbm(uv * 2.6 - vec2(t * 1.7, t * 0.2));
   float fog = smoothstep(0.30, 0.85, f1 * 0.7 + f2 * 0.45) * (0.55 + 0.45 * (1.0 - y));
 
   // Cloud: larger shapes, heavier toward the top of the band.
-  float c1 = fbm(uv * 2.2 + vec2(t * 0.8, t * 0.15));
-  float c2 = fbm(uv * 4.4 + vec2(t * 1.4, 0.0));
+  float c1 = fbm(uv * 2.2 - vec2(t * 0.8, t * 0.15));
+  float c2 = fbm(uv * 4.4 - vec2(t * 1.4, 0.0));
   float cloud = smoothstep(0.42, 0.88, c1 * 0.75 + c2 * 0.35) * smoothstep(0.05, 0.95, y);
 
   float a = clamp(fog * u_fog * 0.42 + cloud * u_cloud * 0.30, 0.0, 0.6);
   vec3 tint = mix(vec3(0.62, 0.66, 0.72), vec3(0.86, 0.88, 0.92), y);
   vec3 col = tint * a;
 
-  // Sun: a warm glow just past the top-right corner, with soft rays that
-  // turn and breathe slowly. Clouds in front dim it.
+  // Sun: just warm light. One wide, soft wash falling in from beyond the
+  // top-right corner, breathing very slowly; cloud in front dims it.
   if (u_sun > 0.0) {
-    vec2 sp = vec2(u_res.x / u_res.y * 0.88, 1.08);
-    vec2 d = uv - sp;
-    float r = length(d);
-    float glow = exp(-r * 2.4) * 0.55 + exp(-r * 7.0) * 0.35;
-    float ang = atan(d.y, d.x);
-    float rays = noise(vec2(ang * 9.0 + u_time * 0.03, u_time * 0.05)) * 0.6
-               + noise(vec2(ang * 23.0 - u_time * 0.02, 3.0)) * 0.4;
-    rays = smoothstep(0.35, 1.0, rays) * exp(-r * 1.3) * 0.28;
-    float sun = (glow + rays) * u_sun * (1.0 - cloud * u_cloud * 0.8);
-    col += vec3(1.0, 0.82, 0.58) * sun * 0.42;
-    a = max(a, clamp(sun * 0.42, 0.0, 0.5));
+    vec2 sp = vec2(u_res.x / u_res.y * 0.95, 1.25);
+    float r = length((uv - sp) * vec2(0.8, 1.0));
+    float breathe = 0.92 + 0.08 * sin(u_time * 0.25);
+    float wash = smoothstep(1.35, 0.0, r);
+    wash = wash * wash * breathe;
+    float sun = wash * u_sun * (1.0 - cloud * u_cloud * 0.8);
+    col += vec3(1.0, 0.78, 0.52) * sun * 0.21;
+    a = max(a, clamp(sun * 0.21, 0.0, 0.25));
   }
   gl_FragColor = vec4(col, a);
 }
