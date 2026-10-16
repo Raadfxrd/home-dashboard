@@ -48,12 +48,16 @@ const meta = computed(() => {
 
 const rain = computed(() => props.outlook?.rain || null);
 
-/* ?weather=rain|heavy|drizzle|storm|snow|sleet|fog|clouds|clear plays that
-   animation over the real dashboard, to try them out. Only the backdrop
-   changes; the numbers stay real. ?wind=40 sets the wind (slant), ?mm=3
-   the rain strength. */
+/* ?weather=sunny|night|clear|partly|clouds|windy|fog|drizzle|rain|heavy|
+   storm|snow|sleet plays that animation over the real dashboard, to try
+   them out. Only the backdrop changes; the numbers stay real. ?wind=40
+   sets the wind, ?mm=3 the rain strength, ?time=day|night the sky. */
 const SIMULATE = {
+  sunny: {conditionId: 800, mm: 0, wind: 8, day: true},
+  night: {conditionId: 800, mm: 0, wind: 6, day: false},
   clear: {conditionId: 800, mm: 0, wind: 8},
+  partly: {conditionId: 802, mm: 0, wind: 14},
+  windy: {conditionId: 802, mm: 0, wind: 60},
   clouds: {conditionId: 804, mm: 0, wind: 15},
   fog: {conditionId: 741, mm: 0, wind: 5},
   drizzle: {conditionId: 301, mm: 0.3, wind: 12},
@@ -70,6 +74,9 @@ const backdrop = computed(() => ({
   conditionId: simulated?.conditionId ?? props.here?.conditionId,
   rainNow: numberParam('mm') ?? simulated?.mm ?? (rain.value?.slots?.[0]?.mm || 0),
   windSpeed: numberParam('wind') ?? simulated?.wind ?? props.here?.windSpeed,
+  daylight: query.get('time') === 'day' ? true
+    : query.get('time') === 'night' ? false
+      : simulated?.day ?? (props.here?.icon ? props.here.icon.endsWith('d') : null),
 }));
 
 /* One scrollable rain timeline, hour by hour for the next 5 days. The
@@ -270,6 +277,7 @@ const forecast = computed(() =>
         :condition-id="backdrop.conditionId"
         :rain-now="backdrop.rainNow"
         :wind-speed="backdrop.windSpeed"
+        :daylight="backdrop.daylight"
     />
     <a
         v-if="simulated"

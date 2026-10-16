@@ -41,10 +41,11 @@ Change the port with `DASHBOARD_PORT` in `.env`.
 
 ## Try the weather animations
 
-Add `?weather=` to the address: `clear`, `clouds`, `fog`, `drizzle`, `rain`,
-`heavy`, `storm`, `snow` or `sleet`, e.g. http://192.168.2.4:3000/?weather=storm.
-Only the animation changes. `&wind=50` adds wind, `&mm=5` sets how hard it
-rains. Click "Simulating … ×" to go back.
+Add `?weather=` to the address: `sunny`, `night`, `clear`, `partly`, `clouds`,
+`windy`, `fog`, `drizzle`, `rain`, `heavy`, `storm`, `snow` or `sleet`, e.g.
+http://192.168.2.4:3000/?weather=storm. Only the animation changes.
+`&wind=50` adds wind, `&mm=5` sets how hard it rains, `&time=day|night`
+picks the sky. Click "Simulating … ×" to go back.
 
 ## Updating
 

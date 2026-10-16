@@ -7,6 +7,10 @@ import {computed, onMounted, onUnmounted, ref, watch} from 'vue';
  * drifting noise), and a 2D canvas for falling precipitation in three depth
  * layers, so near drops are longer, brighter and faster than far ones.
  *
+ * Good weather has its own look: a warm sun glow with slow rays on clear
+ * days, twinkling stars (and the odd shooting star) on clear nights, and
+ * fast, faint gusts across the band when it's windy.
+ *
  * Like Apple's Weather app, the nearer drops land on the cards: anything in
  * the hero marked data-rain-catch stops them at its top edge with a small
  * splash, while the far layer keeps falling behind.
@@ -20,12 +24,19 @@ const props = defineProps({
   conditionId: {type: Number, default: null},
   rainNow: {type: Number, default: 0}, // mm/h right now (Buienradar)
   windSpeed: {type: Number, default: 0}, // km/h
+  daylight: {type: Boolean, default: null}, // null: guess from the clock
+});
+
+const isDay = computed(() => {
+  if (props.daylight !== null && props.daylight !== undefined) return props.daylight;
+  const h = new Date().getHours();
+  return h >= 7 && h < 19;
 });
 
 /* OpenWeather condition codes → what to draw. Intensities are 0–1. */
 const effect = computed(() => {
   const id = Number(props.conditionId) || 0;
-  const fx = {rain: 0, snow: 0, fog: 0, cloud: 0, lightning: false};
+  const fx = {rain: 0, snow: 0, fog: 0, cloud: 0, lightning: false, sun: 0, stars: 0, wind: 0};
 
   if (id >= 200 && id < 300) Object.assign(fx, {rain: 0.9, cloud: 0.6, lightning: true});
   else if (id >= 300 && id < 400) Object.assign(fx, {rain: 0.25, cloud: 0.45});
@@ -39,10 +50,16 @@ const effect = computed(() => {
   else if (id >= 600 && id < 700) Object.assign(fx, {snow: 0.7, cloud: 0.5});
   else if (id === 701 || id === 741) Object.assign(fx, {fog: 0.85});
   else if (id >= 700 && id < 800) Object.assign(fx, {fog: 0.5});
-  else if (id === 801) fx.cloud = 0.2;
-  else if (id === 802) fx.cloud = 0.35;
-  else if (id === 803) fx.cloud = 0.5;
+  else if (id === 800) Object.assign(fx, {sun: 1, stars: 1});
+  else if (id === 801) Object.assign(fx, {cloud: 0.2, sun: 0.8, stars: 0.7});
+  else if (id === 802) Object.assign(fx, {cloud: 0.35, sun: 0.55, stars: 0.4});
+  else if (id === 803) Object.assign(fx, {cloud: 0.5, sun: 0.25, stars: 0.15});
   else if (id === 804) fx.cloud = 0.65;
+  // The sun by day, the stars by night.
+  if (isDay.value) fx.stars = 0;
+  else fx.sun = 0;
+  // Gusts from about 25 km/h, strongest from about 65.
+  fx.wind = Math.max(0, Math.min(1, ((Number(props.windSpeed) || 0) - 25) / 40));
 
   // The radar knows better than the hourly code whether it is raining now.
   const mm = Number(props.rainNow) || 0;
@@ -84,6 +101,10 @@ let obstacles = [];
 let lastScan = -1;
 let splashes = [];
 let settled = [];
+let stars = [];
+let gusts = [];
+let shooting = null;
+let nextShootAt = 0;
 const SETTLED_MAX = 420;
 const SPLASH_MAX = 260;
 
@@ -145,6 +166,8 @@ uniform vec2 u_res;
 uniform float u_time;
 uniform float u_fog;
 uniform float u_cloud;
+uniform float u_sun;
+uniform float u_wind;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -170,7 +193,8 @@ void main() {
   float y = gl_FragCoord.y / u_res.y;
 
   // Fog: low, wide banks drifting slowly sideways.
-  float t = u_time * 0.018;
+  // Wind hurries the fog and cloud along.
+  float t = u_time * 0.018 * (1.0 + u_wind * 2.5);
   float f1 = fbm(uv * 1.4 + vec2(t, 0.0));
   float f2 = fbm(uv * 2.6 - vec2(t * 1.7, t * 0.2));
   float fog = smoothstep(0.30, 0.85, f1 * 0.7 + f2 * 0.45) * (0.55 + 0.45 * (1.0 - y));
@@ -182,7 +206,24 @@ void main() {
 
   float a = clamp(fog * u_fog * 0.42 + cloud * u_cloud * 0.30, 0.0, 0.6);
   vec3 tint = mix(vec3(0.62, 0.66, 0.72), vec3(0.86, 0.88, 0.92), y);
-  gl_FragColor = vec4(tint * a, a);
+  vec3 col = tint * a;
+
+  // Sun: a warm glow just past the top-right corner, with soft rays that
+  // turn and breathe slowly. Clouds in front dim it.
+  if (u_sun > 0.0) {
+    vec2 sp = vec2(u_res.x / u_res.y * 0.88, 1.08);
+    vec2 d = uv - sp;
+    float r = length(d);
+    float glow = exp(-r * 2.4) * 0.55 + exp(-r * 7.0) * 0.35;
+    float ang = atan(d.y, d.x);
+    float rays = noise(vec2(ang * 9.0 + u_time * 0.03, u_time * 0.05)) * 0.6
+               + noise(vec2(ang * 23.0 - u_time * 0.02, 3.0)) * 0.4;
+    rays = smoothstep(0.35, 1.0, rays) * exp(-r * 1.3) * 0.28;
+    float sun = (glow + rays) * u_sun * (1.0 - cloud * u_cloud * 0.8);
+    col += vec3(1.0, 0.82, 0.58) * sun * 0.42;
+    a = max(a, clamp(sun * 0.42, 0.0, 0.5));
+  }
+  gl_FragColor = vec4(col, a);
 }
 `;
 
@@ -232,6 +273,8 @@ function initSky() {
     time: gl.getUniformLocation(program, 'u_time'),
     fog: gl.getUniformLocation(program, 'u_fog'),
     cloud: gl.getUniformLocation(program, 'u_cloud'),
+    sun: gl.getUniformLocation(program, 'u_sun'),
+    wind: gl.getUniformLocation(program, 'u_wind'),
   };
 }
 
@@ -241,11 +284,13 @@ function drawSky(seconds) {
   gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
-  if (fx.fog === 0 && fx.cloud === 0) return;
+  if (fx.fog === 0 && fx.cloud === 0 && fx.sun === 0) return;
   gl.uniform2f(uniforms.res, gl.drawingBufferWidth, gl.drawingBufferHeight);
   gl.uniform1f(uniforms.time, seconds);
   gl.uniform1f(uniforms.fog, fx.fog);
   gl.uniform1f(uniforms.cloud, fx.cloud);
+  gl.uniform1f(uniforms.sun, fx.sun);
+  gl.uniform1f(uniforms.wind, fx.wind);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
@@ -301,6 +346,42 @@ function seedDrops() {
   });
 }
 
+/* Stars sit in the upper part of the band, a few bright, most faint. */
+function seedStars() {
+  const count = Math.round(effect.value.stars * 150 * areaScale());
+  stars = Array.from({length: count}, () => {
+    const bright = Math.random() < 0.12;
+    return {
+      x: Math.random() * width,
+      y: Math.pow(Math.random(), 1.6) * height * 0.75,
+      r: bright ? 1 + Math.random() * 0.6 : 0.4 + Math.random() * 0.5,
+      a: bright ? 0.7 : 0.25 + Math.random() * 0.35,
+      speed: 0.6 + Math.random() * 1.6,
+      phase: Math.random() * Math.PI * 2,
+    };
+  });
+}
+
+/* Wind: thin, fast streaks that sweep across and fade, in gusts. */
+function newGust(scatter) {
+  return {
+    x: scatter ? Math.random() * width : -260 - Math.random() * 200,
+    y: Math.random() * height * 0.9,
+    len: 90 + Math.random() * 200,
+    speed: 520 + Math.random() * 520,
+    amp: 3 + Math.random() * 8,
+    freq: 0.008 + Math.random() * 0.01,
+    alpha: 0.05 + Math.random() * 0.08,
+    life: 0,
+    ttl: 1.2 + Math.random() * 1.4,
+  };
+}
+
+function seedGusts() {
+  const count = Math.round(effect.value.wind * 26 * Math.sqrt(areaScale()));
+  gusts = Array.from({length: count}, () => newGust(true));
+}
+
 function seedFlakes() {
   const count = Math.round(effect.value.snow * 260 * areaScale());
   flakes = Array.from({length: count}, () => {
@@ -340,6 +421,74 @@ function drawFall(dt, seconds) {
 
   // Wind leans the rain; never more than a gentle slant.
   const slant = Math.min(0.32, (Number(props.windSpeed) || 0) / 90);
+
+  // Stars twinkle gently; now and then one shoots.
+  if (stars.length) {
+    ctx2d.fillStyle = 'rgb(232, 238, 255)';
+    for (const st of stars) {
+      const tw = 0.65 + 0.35 * Math.sin(seconds * st.speed + st.phase);
+      ctx2d.globalAlpha = st.a * tw;
+      ctx2d.beginPath();
+      ctx2d.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+      ctx2d.fill();
+    }
+    ctx2d.globalAlpha = 1;
+    if (!reduceMotion) {
+      if (!shooting && seconds >= nextShootAt) {
+        shooting = {x: width * (0.2 + Math.random() * 0.6), y: height * Math.random() * 0.3, t: 0, dx: 640 + Math.random() * 300, dy: 180 + Math.random() * 120};
+        nextShootAt = seconds + 14 + Math.random() * 22;
+      }
+      if (shooting) {
+        shooting.t += dt;
+        const k = shooting.t / 0.9;
+        if (k >= 1) shooting = null;
+        else {
+          const hx = shooting.x + shooting.dx * shooting.t;
+          const hy = shooting.y + shooting.dy * shooting.t;
+          const grad = ctx2d.createLinearGradient(hx, hy, hx - shooting.dx * 0.16, hy - shooting.dy * 0.16);
+          const alpha = Math.sin(Math.PI * k) * 0.8;
+          grad.addColorStop(0, `rgba(240, 244, 255, ${alpha})`);
+          grad.addColorStop(1, 'rgba(240, 244, 255, 0)');
+          ctx2d.strokeStyle = grad;
+          ctx2d.lineWidth = 1.2;
+          ctx2d.beginPath();
+          ctx2d.moveTo(hx, hy);
+          ctx2d.lineTo(hx - shooting.dx * 0.16, hy - shooting.dy * 0.16);
+          ctx2d.stroke();
+        }
+      }
+    }
+  }
+
+  // Gusts: streaks that sweep in, waver and fade. Their strength swells
+  // and settles, so the wind comes in waves rather than a steady stream.
+  if (gusts.length) {
+    const swell = 0.55 + 0.45 * Math.sin(seconds * 0.35) * Math.sin(seconds * 0.13 + 1);
+    ctx2d.lineCap = 'round';
+    ctx2d.lineWidth = 1;
+    for (let i = 0; i < gusts.length; i += 1) {
+      const g = gusts[i];
+      g.life += dt;
+      g.x += g.speed * dt * (0.7 + swell * 0.6);
+      if (g.life >= g.ttl || g.x - g.len > width) {
+        gusts[i] = newGust(false);
+        continue;
+      }
+      const k = g.life / g.ttl;
+      ctx2d.globalAlpha = g.alpha * Math.sin(Math.PI * k) * (0.5 + swell * 0.7);
+      ctx2d.strokeStyle = 'rgb(220, 228, 240)';
+      ctx2d.beginPath();
+      const steps = 8;
+      for (let j = 0; j <= steps; j += 1) {
+        const px = g.x - g.len + (g.len * j) / steps;
+        const py = g.y + Math.sin(px * g.freq + seconds * 2) * g.amp;
+        if (j === 0) ctx2d.moveTo(px, py);
+        else ctx2d.lineTo(px, py);
+      }
+      ctx2d.stroke();
+    }
+    ctx2d.globalAlpha = 1;
+  }
 
   if (drops.length) {
     ctx2d.lineCap = 'round';
@@ -486,10 +635,14 @@ function reseed() {
   if (reduceMotion) {
     drops = [];
     flakes = [];
+    gusts = [];
+    seedStars();
     return;
   }
   seedDrops();
   seedFlakes();
+  seedStars();
+  seedGusts();
 }
 
 function drawStill() {
@@ -497,6 +650,7 @@ function drawStill() {
   if (ctx2d) {
     ctx2d.setTransform(1, 0, 0, 1, 0, 0);
     ctx2d.clearRect(0, 0, fallCanvas.value.width, fallCanvas.value.height);
+    if (stars.length) drawFall(0, 0);
   }
 }
 
@@ -551,6 +705,7 @@ onMounted(() => {
   flakeSprite = makeFlakeSprite();
   startedAt = performance.now();
   nextFlashAt = 4 + Math.random() * 6;
+  nextShootAt = 6 + Math.random() * 10;
 
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(box.value);
