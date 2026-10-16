@@ -3,7 +3,6 @@ import {computed, onMounted, ref, watch} from 'vue';
 import AppIcon from './AppIcon.vue';
 import RollingNumber from './RollingNumber.vue';
 import WeatherBackdrop from './WeatherBackdrop.vue';
-import SegmentedControl from './SegmentedControl.vue';
 import WearAdvice from './WearAdvice.vue';
 import {useDetailStore} from '../stores/useDetailStore.js';
 import {describeRain} from '../composables/rainSummary.js';
@@ -50,82 +49,83 @@ const meta = computed(() => {
 const rain = computed(() => props.outlook?.rain || null);
 const rainNow = computed(() => rain.value?.slots?.[0]?.mm || 0);
 
-/* How far ahead the rain bars look: 2 or 3 hours from the radar (5-minute
-   steps; 3 only when Buienradar sent that much), or the next 24 hours from
-   the forecast (3-hour steps). Remembered per browser. */
-const WINDOW_KEY = 'dashboard.rainWindow';
-function readWindow() {
-  try {
-    return localStorage.getItem(WINDOW_KEY) || '2';
-  } catch {
-    return '2';
-  }
-}
-const rainWindow = ref(readWindow());
-watch(rainWindow, (value) => {
-  try {
-    localStorage.setItem(WINDOW_KEY, value);
-  } catch {
-    // Private mode or blocked storage: the choice just won't stick.
-  }
-});
-
+/* One scrollable rain timeline: the radar first (5-minute steps, the next
+   2-3 hours), then the forecast hour by hour for the rest of the 5 days.
+   The radar part is drawn wider per hour because it says more. */
+const HOUR = 3600000;
 const radarSlots = computed(() => (rain.value?.available ? rain.value.slots || [] : []));
-const daySlots = computed(() => props.outlook?.day || []);
-const hasRain = computed(() => radarSlots.value.length > 0 || daySlots.value.length > 0);
+const weekBlocks = computed(() => props.outlook?.week || props.outlook?.blocks || []);
+const hasRain = computed(() => radarSlots.value.length > 0 || weekBlocks.value.length > 0);
 
-const windowOptions = computed(() => [
-  ...(radarSlots.value.length >= 24 ? [{value: '2', label: '2 h'}] : []),
-  ...(radarSlots.value.length >= 36 ? [{value: '3', label: '3 h'}] : []),
-  ...(daySlots.value.length ? [{value: '24', label: '24 h'}] : []),
-]);
+const dayName = new Intl.DateTimeFormat('en-GB', {weekday: 'short'});
+const hh = (t) => `${String(new Date(t).getHours()).padStart(2, '0')}:00`;
 
-const activeWindow = computed(() => {
-  const options = windowOptions.value;
-  if (options.some((o) => o.value === rainWindow.value)) return rainWindow.value;
-  return options[0]?.value || '2';
+const timeline = computed(() => {
+  const now = Date.now();
+  const out = radarSlots.value.map((slot, i) => ({kind: 'radar', at: now + i * 5 * 60000, time: slot.time, mm: slot.mm || 0, rainChance: null}));
+  const blocks = weekBlocks.value;
+  if (!blocks.length) return out;
+  const from = out.length ? out[out.length - 1].at + 5 * 60000 : now;
+  let t = Math.ceil(from / HOUR) * HOUR;
+  const last = blocks[blocks.length - 1].at + 1.5 * HOUR;
+  for (; t < last; t += HOUR) {
+    const b = blocks.find((x) => t >= x.at - 1.5 * HOUR && t < x.at + 1.5 * HOUR);
+    if (!b) continue;
+    out.push({kind: 'forecast', at: t, time: hh(t), mm: b.mm || 0, rainChance: b.rainChance ?? null});
+  }
+  return out;
 });
-
-const isDay = computed(() => activeWindow.value === '24');
-const sourceSlots = computed(() => (isDay.value ? daySlots.value : radarSlots.value));
-const shownSlots = computed(() =>
-  isDay.value ? daySlots.value : radarSlots.value.slice(0, Number(activeWindow.value) * 12)
-);
-const windowLabel = computed(() => `next ${activeWindow.value} hours`);
-// The day view comes in 3-hour blocks, so one dry block already counts as a break.
-const rainSummary = computed(() =>
-  describeRain(shownSlots.value, windowLabel.value, {minDry: isDay.value ? 1 : 2}) || rain.value?.summary
-);
 
 /* Rain on a log-ish scale so a drizzle still shows and a downpour doesn't
    swamp everything else: 0.1 mm/h is a short bar, 4 mm/h fills the track. */
 const rainBars = computed(() => {
-  const shown = shownSlots.value.length;
-  const slots = sourceSlots.value;
-  return slots.map((slot, index) => {
+  let x = 0;
+  let lastTick = -Infinity;
+  return timeline.value.map((slot, i, all) => {
     const wet = slot.mm >= 0.1;
     const level = wet ? Math.min(1, Math.log10(1 + slot.mm) / Math.log10(5)) : 0;
-    const chance = slot.rainChance != null ? `, ${slot.rainChance}% chance` : '';
-    const span = isDay.value && slots[index + 1] ? `${slot.time}–${slots[index + 1].time}` : slot.time;
+    const d = new Date(slot.at);
+    const midnight = slot.kind === 'forecast' && d.getHours() === 0;
+    let tick = null;
+    if (i === 0) tick = 'Now';
+    else if (slot.kind === 'radar' && i % 12 === 0) tick = slot.time;
+    else if (slot.kind === 'forecast' && all[i - 1].kind === 'radar') tick = slot.time;
+    else if (midnight) tick = dayName.format(d);
+    else if (slot.kind === 'forecast' && d.getHours() % 6 === 0 && all[i - 1]?.kind === 'forecast') tick = slot.time;
+    // Column widths match the CSS below; labels keep a little room apart.
+    const seam = slot.kind === 'forecast' && all[i - 1]?.kind === 'radar';
+    if (seam || midnight) x += 6;
+    if (tick && i > 0 && x - lastTick < 60) tick = null;
+    if (tick) lastTick = x;
+    x += slot.kind === 'radar' ? 9 : 12;
     return {
-      // Keyed by position, so a refresh animates heights instead of
-      // replacing bars, and a different window reshapes the row in place.
-      key: index,
+      key: i,
+      ...slot,
       wet,
-      inWindow: index < shown,
+      // Forecast rain is a chance, not a measurement: paler when it's unlikely.
+      faint: slot.kind === 'forecast' && (slot.rainChance ?? 100) < 40,
       height: grown.value && wet ? Math.round(6 + level * 50) : 2,
-      label: wet ? `${span}, ${slot.mm.toFixed(1)} mm/h${chance}` : `${span}, dry${chance}`,
-      span,
-      mm: slot.mm,
-      rainChance: slot.rainChance ?? null,
+      tick,
+      day: midnight,
+      seam,
     };
   });
 });
 
-/* Hovering (or dragging a finger, or arrow keys) over the bars reads one
+const rainSummary = computed(() => {
+  if (radarSlots.value.length) {
+    return describeRain(radarSlots.value, `next ${Math.round(radarSlots.value.length / 12)} hours`) || rain.value?.summary;
+  }
+  const day = timeline.value.slice(0, 24);
+  return day.length ? describeRain(day, 'next 24 hours', {minDry: 3}) : null;
+});
+
+/* Hovering (or dragging a finger, or arrow keys) over a bar reads that
    slot out in the same tooltip the system charts use. */
 const rainHover = ref(null);
-const rainTrack = ref(null);
+const rainScroller = ref(null);
+const rainWrap = ref(null);
+const tipLeft = ref(0);
 
 function intensity(mm) {
   if (mm < 0.1) return 'Dry';
@@ -135,60 +135,102 @@ function intensity(mm) {
   return 'Downpour';
 }
 
+const dayLong = new Intl.DateTimeFormat('en-GB', {weekday: 'long'});
+function whenText(bar) {
+  if (bar.key === 0) return `Now, ${bar.time}`;
+  if (bar.kind === 'radar') return bar.time;
+  const d = new Date(bar.at);
+  const today = new Date();
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date(today).setHours(0, 0, 0, 0)) / 86400000);
+  const label = days === 0 ? '' : days === 1 ? 'Tomorrow ' : `${dayLong.format(d)} `;
+  return `${label}${bar.time}–${hh(bar.at + HOUR)}`;
+}
+
 const rainReadout = computed(() => {
-  const i = rainHover.value;
-  const shown = shownSlots.value.length;
-  if (i == null || i >= shown) return null;
-  const bar = rainBars.value[i];
+  const bar = rainBars.value[rainHover.value];
   if (!bar) return null;
-  const left = ((i + 0.5) / shown) * 100;
+  const width = rainWrap.value?.clientWidth || 1;
   return {
-    index: i,
-    left,
-    flip: left > 70,
-    time: i === 0 && !isDay.value ? `Now, ${bar.span}` : bar.span,
+    index: bar.key,
+    left: tipLeft.value,
+    flip: tipLeft.value > width * 0.7,
+    time: whenText(bar),
     title: intensity(bar.mm),
     amount: bar.wet ? `${bar.mm.toFixed(1)} mm/h` : null,
     chance: bar.rainChance != null ? `${bar.rainChance}% chance` : null,
+    source: bar.kind === 'radar' ? 'Radar' : 'Forecast',
   };
 });
 
-function onRainPointer(event) {
-  const el = rainTrack.value;
-  const shown = shownSlots.value.length;
-  if (!el || !shown) return;
+function showBar(index) {
+  const wrap = rainWrap.value;
+  const el = rainScroller.value?.querySelector(`[data-i="${index}"]`);
+  if (!wrap || !el) return;
+  const w = wrap.getBoundingClientRect();
   const r = el.getBoundingClientRect();
-  const x = Math.min(Math.max(event.clientX - r.left, 0), r.width - 1);
-  rainHover.value = Math.floor((x / r.width) * shown);
+  tipLeft.value = r.left + r.width / 2 - w.left;
+  rainHover.value = index;
+}
+
+/* Mouse drag scrolls the timeline; touch scrolls natively. */
+let drag = null;
+function onRainDown(event) {
+  if (event.pointerType !== 'mouse' || !rainScroller.value) return;
+  drag = {x: event.clientX, left: rainScroller.value.scrollLeft, moved: false};
+}
+function onRainMove(event) {
+  if (drag) {
+    const dx = event.clientX - drag.x;
+    if (Math.abs(dx) > 3) drag.moved = true;
+    if (drag.moved) {
+      rainScroller.value.scrollLeft = drag.left - dx;
+      rainHover.value = null;
+      return;
+    }
+  }
+  const bar = event.target.closest?.('[data-i]');
+  if (bar) showBar(Number(bar.dataset.i));
+}
+function onRainUp() {
+  drag = null;
 }
 
 function onRainKey(event) {
-  const shown = shownSlots.value.length;
-  if (!shown) return;
+  const count = rainBars.value.length;
+  if (!count) return;
   if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
     event.preventDefault();
     const step = event.key === 'ArrowRight' ? 1 : -1;
-    rainHover.value = Math.min(shown - 1, Math.max(0, (rainHover.value ?? (step > 0 ? -1 : shown)) + step));
+    const next = Math.min(count - 1, Math.max(0, (rainHover.value ?? (step > 0 ? -1 : count)) + step));
+    rainScroller.value?.querySelector(`[data-i="${next}"]`)?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    requestAnimationFrame(() => showBar(next));
   } else if (event.key === 'Escape') {
     rainHover.value = null;
   }
 }
 
-watch(shownSlots, () => (rainHover.value = null));
+/* Buttons page through the timeline; they hide at either end. */
+const canBack = ref(false);
+const canForward = ref(false);
+function onRainScroll() {
+  const el = rainScroller.value;
+  if (!el) return;
+  canBack.value = el.scrollLeft > 4;
+  canForward.value = el.scrollLeft < el.scrollWidth - el.clientWidth - 4;
+  rainHover.value = null;
+}
+function page(direction) {
+  const el = rainScroller.value;
+  if (el) el.scrollBy({left: direction * el.clientWidth * 0.8, behavior: 'smooth'});
+}
+watch(rainBars, () => requestAnimationFrame(onRainScroll), {flush: 'post'});
 
 /* Bars rise from the baseline the first time they appear. */
 const grown = ref(false);
-onMounted(() => requestAnimationFrame(() => requestAnimationFrame(() => (grown.value = true))));
-
-const rainTicks = computed(() => {
-  const slots = shownSlots.value;
-  if (!slots.length) return [];
-  const quarter = slots.length / 4;
-  return [0, 1, 2, 3]
-      .map((q) => Math.round(q * quarter))
-      .filter((i) => i < slots.length)
-      .map((i) => ({key: i, left: `${(i / slots.length) * 100}%`, text: i === 0 ? 'Now' : slots[i].time}));
-});
+onMounted(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+  grown.value = true;
+  onRainScroll();
+})));
 
 const forecast = computed(() =>
   (props.outlook?.hours || []).map((h) => ({
@@ -279,65 +321,67 @@ const forecast = computed(() =>
           </dl>
         </div>
 
-        <!-- Rain, next hours -->
+        <!-- Rain: radar, then the forecast, as one scrollable timeline -->
         <div v-if="hasRain" class="reveal">
           <div class="flex items-center justify-between gap-4">
             <Transition name="swap" mode="out-in">
               <p :key="rainSummary" class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rainSummary }}</p>
             </Transition>
-            <SegmentedControl
-                :model-value="activeWindow"
-                @update:model-value="rainWindow = $event"
-                :options="windowOptions"
-                size="sm"
-                label="How far ahead to show rain"
-            />
+            <div class="flex shrink-0 gap-1.5">
+              <button type="button" class="rain-page glass press flex h-7 w-7 items-center justify-center rounded-full" :class="{'is-off': !canBack}" :disabled="!canBack" aria-label="Earlier" @click="page(-1)">
+                <AppIcon :size="13" name="arrow" class="rotate-180"/>
+              </button>
+              <button type="button" class="rain-page glass press flex h-7 w-7 items-center justify-center rounded-full" :class="{'is-off': !canForward}" :disabled="!canForward" aria-label="Later" @click="page(1)">
+                <AppIcon :size="13" name="arrow"/>
+              </button>
+            </div>
           </div>
-          <div
-              class="rain-chart relative mt-3"
-              tabindex="0"
-              role="img"
-              :aria-label="rainReadout ? `${rainReadout.time}: ${rainReadout.title}${rainReadout.amount ? `, ${rainReadout.amount}` : ''}` : rainSummary"
-              @pointermove="onRainPointer"
-              @pointerdown="onRainPointer"
-              @pointerleave="rainHover = null"
-              @keydown="onRainKey"
-              @blur="rainHover = null"
-          >
-            <div ref="rainTrack" class="flex h-14 items-end overflow-hidden border-b border-line" :class="{'is-reading': rainReadout}">
-              <span
-                  v-for="bar in rainBars"
-                  :key="bar.key"
-                  class="rain-bar rounded-t-[3px]"
-                  :class="[bar.wet ? 'bg-accent' : 'bg-line', bar.inWindow ? 'in-window' : 'out-window', {'is-hovered': rainReadout?.index === bar.key}]"
-                  :style="{height: `${bar.height}px`}"
-              ></span>
+          <div ref="rainWrap" class="relative mt-3">
+            <div
+                ref="rainScroller"
+                class="rain-scroll overflow-x-auto"
+                :class="{'fade-start': canBack, 'fade-end': canForward}"
+                tabindex="0"
+                role="img"
+                :aria-label="rainReadout ? `${rainReadout.time}: ${rainReadout.title}${rainReadout.amount ? `, ${rainReadout.amount}` : ''}` : rainSummary"
+                @scroll.passive="onRainScroll"
+                @pointerdown="onRainDown"
+                @pointermove="onRainMove"
+                @pointerup="onRainUp"
+                @pointerleave="onRainUp(); rainHover = null"
+                @keydown="onRainKey"
+                @blur="rainHover = null"
+            >
+              <div class="rain-track flex w-max items-end pb-5" :class="{'is-reading': rainReadout}">
+                <span
+                    v-for="bar in rainBars"
+                    :key="bar.key"
+                    :data-i="bar.key"
+                    class="rain-col relative flex h-14 items-end"
+                    :class="[bar.kind === 'radar' ? 'is-radar' : 'is-forecast', {'is-seam': bar.seam, 'is-day': bar.day}]"
+                >
+                  <span
+                      class="rain-bar block w-full rounded-t-[3px]"
+                      :class="[bar.wet ? 'bg-accent' : 'bg-line', {'is-faint': bar.faint && bar.wet, 'is-hovered': rainReadout?.index === bar.key}]"
+                      :style="{height: `${bar.height}px`}"
+                  ></span>
+                  <span v-if="bar.tick" class="rain-tick t-read t-note absolute left-0 top-full mt-2 whitespace-nowrap text-[0.75rem]" :class="{'text-dim': bar.day}">{{ bar.tick }}</span>
+                </span>
+              </div>
             </div>
             <div
                 v-if="rainReadout"
-                class="rain-tip pointer-events-none absolute bottom-[calc(100%+6px)] z-10 flex flex-col gap-1 rounded-md px-2.5 py-2"
+                class="rain-tip pointer-events-none absolute bottom-[calc(100%-0.5rem)] z-10 flex flex-col gap-1 rounded-md px-2.5 py-2"
                 :style="rainReadout.flip
-                  ? {right: `calc(${100 - rainReadout.left}% - 14px)`}
-                  : {left: `calc(${rainReadout.left}% - 14px)`}"
+                  ? {right: `calc(100% - ${rainReadout.left}px - 14px)`}
+                  : {left: `${rainReadout.left - 14}px`}"
             >
               <span class="t-note t-read text-[0.75rem]">{{ rainReadout.time }}</span>
               <span class="whitespace-nowrap text-[0.8125rem] font-semibold" :class="rainReadout.amount ? 'text-accent' : 'text-ink'">
                 {{ rainReadout.title }}<template v-if="rainReadout.amount"> · {{ rainReadout.amount }}</template>
               </span>
-              <span v-if="rainReadout.chance" class="whitespace-nowrap text-[0.75rem] text-dim">{{ rainReadout.chance }}</span>
+              <span class="whitespace-nowrap text-[0.75rem] text-dim">{{ [rainReadout.chance, rainReadout.source].filter(Boolean).join(' · ') }}</span>
             </div>
-          </div>
-          <div class="relative mt-2 h-4 t-note text-[0.75rem]">
-            <span
-                v-for="tick in rainTicks"
-                :key="tick.key"
-                class="absolute top-0"
-                :style="{left: tick.left}"
-            >
-              <Transition name="swap" mode="out-in">
-                <span :key="tick.text" class="t-read inline-block">{{ tick.text }}</span>
-              </Transition>
-            </span>
           </div>
         </div>
 
@@ -447,25 +491,101 @@ const forecast = computed(() =>
 
 /* Bars outside the chosen window shrink to nothing, so switching between
    1, 2 and 3 hours stretches or squeezes the row instead of redrawing it. */
-.rain-chart {
-  touch-action: pan-y;
-  cursor: default;
+.rain-scroll {
+  scrollbar-width: none;
+  touch-action: pan-x;
+  cursor: grab;
+  border-bottom: 0;
+  outline: none;
+}
+
+.rain-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.rain-scroll:active {
+  cursor: grabbing;
+}
+
+.rain-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
   border-radius: 4px;
 }
 
-.rain-chart:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
+/* Soft edges where there's more to scroll to. */
+.rain-scroll.fade-end {
+  -webkit-mask-image: linear-gradient(to right, #000 88%, transparent);
+  mask-image: linear-gradient(to right, #000 88%, transparent);
+}
+
+.rain-scroll.fade-start {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%);
+  mask-image: linear-gradient(to right, transparent, #000 12%);
+}
+
+.rain-scroll.fade-start.fade-end {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* The baseline, drawn per column so it scrolls with the bars. */
+.rain-col {
+  border-bottom: 1px solid rgb(var(--line-rgb));
+}
+
+.rain-col.is-radar {
+  width: 9px;
+  padding-right: 2px;
+}
+
+.rain-col.is-forecast {
+  width: 12px;
+  padding-right: 3px;
+}
+
+/* Where the radar hands over to the forecast, and each new day. */
+.rain-col.is-seam,
+.rain-col.is-day {
+  margin-left: 6px;
+}
+
+.rain-col.is-seam::before,
+.rain-col.is-day::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgb(var(--line-soft-rgb));
+}
+
+.rain-page {
+  color: rgb(var(--text-dim-rgb));
+  transition: opacity 200ms var(--ease), color 120ms var(--ease), background-color 120ms var(--ease);
+}
+
+.rain-page:hover {
+  color: rgb(var(--text-rgb));
+  background: var(--glass-fill-hover);
+}
+
+.rain-page.is-off {
+  opacity: 0.3;
+  pointer-events: none;
 }
 
 /* While reading one slot, the others step back. */
-.is-reading .rain-bar.in-window:not(.is-hovered) {
+.is-reading .rain-bar:not(.is-hovered) {
   opacity: 0.45;
 }
 
 .rain-tip {
-  background: rgb(58 58 60);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  background: rgb(44 44 48 / 0.92);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08), 0 10px 28px rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
   animation: rain-tip-in 120ms ease-out both;
 }
 
@@ -477,21 +597,11 @@ const forecast = computed(() =>
 }
 
 .rain-bar {
-  flex: 1 1 0;
-  min-width: 0;
-  margin-right: 3px;
-  transition: height 600ms var(--ease), flex-grow 420ms var(--ease), margin 420ms var(--ease), opacity 300ms var(--ease);
+  transition: height 600ms var(--ease), opacity 160ms var(--ease);
 }
 
-.rain-bar:last-child,
-.rain-bar.in-window:has(+ .out-window) {
-  margin-right: 0;
-}
-
-.rain-bar.out-window {
-  flex-grow: 0;
-  margin-right: 0;
-  opacity: 0;
+.rain-bar.is-faint {
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {
