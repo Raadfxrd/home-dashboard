@@ -248,10 +248,9 @@ onUnmounted(() => {
               :loading="!homeStore.statusLoaded"
               @clear-log="homeStore.clearLog()"
           />
-          <RouterLink class="library-link glass press flex items-center gap-2 rounded-full px-4 py-2 text-[0.875rem] text-ink" to="/media/movies">
-            <AppIcon :size="16" class="text-dim" name="film"/>
+          <RouterLink class="library-link press flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.8125rem] text-dim" to="/media/movies">
             Library
-            <AppIcon :size="14" class="text-faint" name="arrow"/>
+            <AppIcon :size="13" name="arrow"/>
           </RouterLink>
         </div>
       </div>
@@ -272,11 +271,11 @@ onUnmounted(() => {
 
 <style scoped>
 .library-link {
-  transition: background-color 120ms var(--ease);
+  transition: color 120ms var(--ease);
 }
 
 .library-link:hover {
-  background: var(--glass-fill-hover);
+  color: rgb(var(--text-rgb));
 }
 
 .library-link:focus-visible {

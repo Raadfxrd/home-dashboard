@@ -53,6 +53,9 @@ const rainNow = computed(() => rain.value?.slots?.[0]?.mm || 0);
    2-3 hours), then the forecast hour by hour for the rest of the 5 days.
    The radar part is drawn wider per hour because it says more. */
 const HOUR = 3600000;
+// Bars rise from the baseline the first time they appear. Declared before
+// anything reads it: on a return visit the weather is already loaded.
+const grown = ref(false);
 const radarSlots = computed(() => (rain.value?.available ? rain.value.slots || [] : []));
 const weekBlocks = computed(() => props.outlook?.week || props.outlook?.blocks || []);
 const hasRain = computed(() => radarSlots.value.length > 0 || weekBlocks.value.length > 0);
@@ -225,8 +228,6 @@ function page(direction) {
 }
 watch(rainBars, () => requestAnimationFrame(onRainScroll), {flush: 'post'});
 
-/* Bars rise from the baseline the first time they appear. */
-const grown = ref(false);
 onMounted(() => requestAnimationFrame(() => requestAnimationFrame(() => {
   grown.value = true;
   onRainScroll();
