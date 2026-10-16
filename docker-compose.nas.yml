@@ -1,0 +1,32 @@
+# Deployment for the Asustor NAS.
+# Run from this folder on the NAS:  sudo sh deploy.sh
+name: home-dashboard
+
+services:
+  dashboard:
+    build: .
+    image: home-dashboard
+    container_name: home-dashboard
+    env_file: .env
+    environment:
+      # Local time for calendar days and anything the server formats.
+      TZ: ${TZ:-Europe/Amsterdam}
+      # Disk usage is read with statfs, so any folder on the NAS volume works.
+      # This folder is mounted read-only for that purpose.
+      NAS_USAGE_PATH: /mnt/nas
+    volumes:
+      - ./:/mnt/nas:ro
+      # Read-only, for the container list in the bottom bar. Only GET
+      # requests are made; deploy.sh fills in the socket's group.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    group_add:
+      - "${DOCKER_GID:-0}"
+    ports:
+      - "${DASHBOARD_PORT:-3000}:3001"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

@@ -1,23 +1,22 @@
 <script setup>
 import AppIcon from './AppIcon.vue';
+import {useDetailStore} from '../stores/useDetailStore.js';
 
+/* A poster. A tap opens its details (with a link on to Jellyfin there). */
 defineProps({
   item: {type: Object, required: true},
 });
 
-function link(item) {
-  return item?.links?.jellyfin || item?.url || null;
-}
+const detail = useDetailStore();
 </script>
 
 <template>
-  <component
-      :is="link(item) ? 'a' : 'div'"
-      :href="link(item) || undefined"
-      :target="link(item) ? '_blank' : undefined"
-      :rel="link(item) ? 'noopener noreferrer' : undefined"
-      class="group block"
+  <button
+      type="button"
+      class="media-card group block w-full min-w-0 text-left"
       data-media-card
+      :aria-label="`${item.title}${item.year ? `, ${item.year}` : ''}. Show details`"
+      @click="detail.open('media', item, $event)"
   >
     <div class="well relative aspect-[2/3] overflow-hidden">
       <img
@@ -43,5 +42,5 @@ function link(item) {
       <span v-if="item.year && item.subtitle"> · </span>
       <span v-if="item.subtitle">{{ item.subtitle }}</span>
     </p>
-  </component>
+  </button>
 </template>

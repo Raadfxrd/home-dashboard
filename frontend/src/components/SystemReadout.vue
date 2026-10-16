@@ -1,27 +1,34 @@
 <script setup>
 import {computed} from 'vue';
-import Sparkline from './Sparkline.vue';
+import TimeChart from './TimeChart.vue';
+import SegmentedControl from './SegmentedControl.vue';
 import RollingNumber from './RollingNumber.vue';
+import {formatBitrate, niceBitrateCeiling} from '../composables/bitrate.js';
 
 /**
- * The NAS, read as an instrument rather than four KPI cards: one row per
- * measure, labels left, values right in a single aligned column, the trace
- * between them. Aligned numbers are scannable in a way scattered ones
- * aren't — and on this screen the numbers are the content.
+ * The NAS at a glance. A plain-language status line first, then the two
+ * things that actually move (processor and network) as charts over the
+ * chosen window, then memory and storage as meters, since they barely
+ * change minute to minute. History comes from the backend, so the charts
+ * are full as soon as the page opens.
  */
 const props = defineProps({
   metrics: {type: Object, required: true},
   fallback: {type: Object, default: null},
-  cpuHistory: {type: Array, default: () => []},
-  ramHistory: {type: Array, default: () => []},
-  rxHistory: {type: Array, default: () => []},
-  txHistory: {type: Array, default: () => []},
+  history: {type: Object, default: null},
+  range: {type: String, default: '1h'},
+  loading: {type: Boolean, default: false},
 });
 
+const emit = defineEmits(['update:range']);
+
+const CPU_COLOR = 'rgb(var(--accent-rgb))';
+const UP_COLOR = '#199e70';
+
 function formatBytes(bytes) {
-  if (bytes === null || bytes === undefined) return '—';
+  if (bytes === null || bytes === undefined) return '–';
   const value = Number(bytes);
-  if (!Number.isFinite(value)) return '—';
+  if (!Number.isFinite(value)) return '–';
   if (value < 1024) return `${Math.round(value)} B`;
   const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
   let current = value / 1024;
@@ -33,97 +40,234 @@ function formatBytes(bytes) {
   return `${current >= 10 ? current.toFixed(0) : current.toFixed(1)} ${units[i]}`;
 }
 
-/* A measure is only worth colouring once it's actually a problem. */
-function tone(percent) {
-  if (!Number.isFinite(percent)) return 'var(--text-dim)';
-  if (percent >= 90) return 'var(--fault)';
-  if (percent >= 75) return 'var(--warn)';
-  return 'var(--text-dim)';
+const rate = formatBitrate;
+const pct = (v) => `${Math.round(v)}%`;
+const clock = (t) => new Date(t).toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'});
+
+function uptimeText(seconds) {
+  if (!Number.isFinite(seconds)) return '';
+  const days = Math.floor(seconds / 86400);
+  if (days >= 1) return `up ${days} day${days === 1 ? '' : 's'}`;
+  const hours = Math.floor(seconds / 3600);
+  if (hours >= 1) return `up ${hours} hour${hours === 1 ? '' : 's'}`;
+  return `up ${Math.max(1, Math.floor(seconds / 60))} min`;
 }
 
 const cpu = computed(() => props.metrics?.cpu?.usagePercent);
 const ram = computed(() => props.metrics?.memory?.usedPercent);
-const disk = computed(() => props.metrics?.disk?.usedPercent);
+const disk = computed(() => props.metrics?.disk?.usedPercent ?? props.fallback?.usedPercent);
+const diskFree = computed(() => props.metrics?.disk?.freeBytes ?? props.fallback?.freeBytes);
 const rx = computed(() => props.metrics?.network?.totalRxRateBytesPerSecond);
 const tx = computed(() => props.metrics?.network?.totalTxRateBytesPerSecond);
+
+/* The one sentence that says whether anything needs attention. */
+const status = computed(() => {
+  const m = props.metrics;
+  if (!m?.online) return {tone: 'fault', text: 'Can’t reach the NAS', detail: m?.error || ''};
+  if (Number.isFinite(disk.value) && disk.value >= 90) return {tone: 'fault', text: 'Storage almost full'};
+  if (Number.isFinite(ram.value) && ram.value >= 90) return {tone: 'warn', text: 'Memory almost full'};
+  if (Number.isFinite(cpu.value) && cpu.value >= 85) return {tone: 'warn', text: 'Processor busy'};
+  return {tone: 'live', text: 'Running normally'};
+});
+
+const host = computed(() => {
+  const parts = [props.metrics?.hostName || props.metrics?.label, uptimeText(props.metrics?.uptimeSeconds)].filter(Boolean);
+  return parts.join(', ');
+});
+
+const points = computed(() => props.history?.points || []);
+const stats = computed(() => props.history?.stats || {});
+const span = computed(() => {
+  const to = props.history?.to || Date.now();
+  const from = props.history?.from || to - (props.range === '24h' ? 86400000 : 3600000);
+  return {from, to};
+});
+
+const cpuSummary = computed(() => {
+  const s = stats.value;
+  if (s.cpuAverage == null) return '';
+  const peak = s.cpuPeak != null ? `, peak ${s.cpuPeak}% at ${clock(s.cpuPeakAt)}` : '';
+  return `average ${s.cpuAverage}%${peak}`;
+});
+
+/* A round number just above the busiest moment, shared by both directions
+   so download and upload are directly comparable. */
+const netMax = computed(() =>
+  niceBitrateCeiling(Math.max(stats.value.rxPeak || 0, stats.value.txPeak || 0, rx.value || 0, tx.value || 0))
+);
+
+const xLabels = computed(() =>
+  props.range === '24h' ? ['24 h ago', '12 h ago', 'Now'] : ['60 min ago', '30 min ago', 'Now']
+);
+
+function meterTone(percent) {
+  if (!Number.isFinite(percent)) return 'bg-dim';
+  if (percent >= 90) return 'bg-fault';
+  if (percent >= 75) return 'bg-warn';
+  return 'bg-dim';
+}
 </script>
 
 <template>
   <section class="settle">
-    <header class="mb-4 flex items-baseline justify-between gap-4">
+    <header class="mb-4 flex items-center justify-between gap-4">
       <h2 class="t-section">System</h2>
-      <p v-if="metrics.configured" class="t-note">{{ metrics.label || 'NAS' }}</p>
+      <span v-if="loading" class="skeleton h-[2.625rem] w-[10.5rem] rounded-[10px]" aria-hidden="true"></span>
+      <SegmentedControl
+          v-else-if="metrics.configured"
+          :model-value="range"
+          :options="[{value: '1h', label: '1 hour'}, {value: '24h', label: '24 hours'}]"
+          label="Time range"
+          @update:model-value="emit('update:range', $event)"
+      />
     </header>
 
-    <div v-if="metrics.configured" class="panel divide-y divide-line-soft">
-      <!-- Processor -->
-      <div class="flex items-center gap-4 px-4 py-3.5">
-        <span class="w-20 shrink-0 t-body">Processor</span>
-        <span class="h-7 min-w-0 flex-1">
-          <Sparkline :values="cpuHistory" :max="100" :height="26" :tone="tone(cpu)"/>
+    <!-- First load: the card's own shape, so nothing moves when data lands. -->
+    <div v-if="loading" class="panel" aria-busy="true" aria-label="Loading NAS status">
+      <div class="flex flex-col gap-4 border-b border-line-soft px-5 py-4 lg:flex-row lg:items-center lg:justify-between" aria-hidden="true">
+        <span class="flex items-center gap-2.5">
+          <span class="skeleton h-2 w-2 rounded-full"></span>
+          <span class="flex flex-col gap-1.5"><span class="skeleton h-4 w-36"></span><span class="skeleton h-3 w-28"></span></span>
         </span>
-        <span class="t-read w-[4.75rem] shrink-0 text-right text-[0.95rem] text-ink">
-          <RollingNumber :value="cpu" suffix="%"/>
-        </span>
-      </div>
-
-      <!-- Memory -->
-      <div class="flex items-center gap-4 px-4 py-3.5">
-        <span class="w-20 shrink-0 t-body">
-          Memory
-          <span class="mt-0.5 block t-note text-[0.75rem]">
-            {{ formatBytes(metrics.memory?.usedBytes) }}
+        <span class="grid grid-cols-2 gap-7 lg:w-[34rem]">
+          <span v-for="m in 2" :key="m" class="flex flex-col gap-2">
+            <span class="flex h-5 items-center justify-between"><span class="skeleton h-3.5 w-16"></span><span class="skeleton h-3.5 w-10"></span></span>
+            <span class="skeleton h-1.5 rounded-full"></span>
+            <span class="flex h-4 items-center"><span class="skeleton h-3 w-24"></span></span>
           </span>
         </span>
-        <span class="h-7 min-w-0 flex-1">
-          <Sparkline :values="ramHistory" :max="100" :height="26" :tone="tone(ram)"/>
-        </span>
-        <span class="t-read w-[4.75rem] shrink-0 text-right text-[0.95rem] text-ink">
-          <RollingNumber :value="ram" suffix="%"/>
-        </span>
+      </div>
+      <div class="grid grid-cols-1 divide-line-soft lg:grid-cols-2 lg:divide-x" aria-hidden="true">
+        <div v-for="c in 2" :key="c" class="flex flex-col gap-3 px-5 pb-4 pt-4" :class="c === 1 ? 'border-b border-line-soft lg:border-b-0' : ''">
+          <div class="flex h-7 items-center gap-3">
+            <span class="skeleton h-4 w-20"></span>
+            <span class="skeleton h-6 w-16"></span>
+            <span class="skeleton ml-auto h-3 w-40"></span>
+          </div>
+          <div class="flex gap-3">
+            <span class="skeleton h-[128px] min-w-0 flex-1 rounded-md"></span>
+            <span class="w-[4.5rem] shrink-0"></span>
+          </div>
+          <span class="h-4"></span>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="metrics.configured" class="reveal panel">
+      <!-- Status, with the two slow-moving measures beside it. -->
+      <div class="flex flex-col gap-4 border-b border-line-soft px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2.5">
+            <span class="status-dot" :class="`dot dot-${status.tone}`"></span>
+            <Transition name="swap" mode="out-in">
+              <span :key="status.text" class="text-[0.9375rem] font-semibold text-ink">{{ status.text }}</span>
+            </Transition>
+          </div>
+          <p v-if="status.detail" class="mt-0.5 pl-[1.125rem] t-note">{{ status.detail }}</p>
+          <p v-else-if="host && metrics.online" class="mt-0.5 pl-[1.125rem] t-note">{{ host }}</p>
+        </div>
+
+        <div v-if="metrics.online" class="grid grid-cols-2 gap-7 lg:w-[34rem]">
+          <div class="flex flex-col gap-2">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="t-body">Memory</span>
+              <span class="text-[1rem] font-semibold text-ink"><RollingNumber :value="ram" suffix="%" fallback="–"/></span>
+            </div>
+            <span class="well block h-1.5 overflow-hidden rounded-full">
+              <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(ram)" :style="{width: `${Math.max(0, Math.min(100, ram || 0))}%`}"></span>
+            </span>
+            <span class="t-note text-[0.75rem]">{{ formatBytes(metrics.memory?.usedBytes) }} of {{ formatBytes(metrics.memory?.totalBytes) }} in use</span>
+          </div>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="t-body">Storage</span>
+              <span class="text-[1rem] font-semibold text-ink"><RollingNumber :value="disk" suffix="%" fallback="–"/></span>
+            </div>
+            <span class="well block h-1.5 overflow-hidden rounded-full">
+              <span class="block h-full rounded-full transition-[width] duration-700 ease-ease" :class="meterTone(disk)" :style="{width: `${Math.max(0, Math.min(100, disk || 0))}%`}"></span>
+            </span>
+            <span class="t-note text-[0.75rem]">{{ formatBytes(diskFree) }} free</span>
+          </div>
+        </div>
       </div>
 
-      <!-- Storage. A bar, not a trace — it doesn't move minute to minute. -->
-      <div class="flex items-center gap-4 px-4 py-3.5">
-        <span class="w-20 shrink-0 t-body">
-          Storage
-          <span class="mt-0.5 block t-note text-[0.75rem]">
-            {{ formatBytes(metrics.disk?.freeBytes) }} free
-          </span>
-        </span>
-        <span class="min-w-0 flex-1">
-          <span class="well block h-2 overflow-hidden rounded-full">
-            <span
-                class="block h-full rounded-full transition-[width] duration-700 ease-ease"
-                :style="{width: `${Math.max(0, Math.min(100, disk || 0))}%`, background: tone(disk)}"
-            ></span>
-          </span>
-        </span>
-        <span class="t-read w-[4.75rem] shrink-0 text-right text-[0.95rem] text-ink">
-          <RollingNumber :value="disk" suffix="%"/>
-        </span>
-      </div>
+      <!-- The two measures that move, side by side on wide screens. -->
+      <div v-if="metrics.online" class="grid grid-cols-1 divide-line-soft lg:grid-cols-2 lg:divide-x">
+        <!-- Processor -->
+        <div class="flex min-w-0 flex-col gap-3 border-b border-line-soft px-5 pb-4 pt-4 lg:border-b-0">
+          <div class="flex min-h-7 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span class="t-body">Processor</span>
+            <span class="text-[1.5rem] font-semibold leading-none tracking-[-0.02em] text-ink"><RollingNumber :value="cpu" suffix="%" fallback="–" digit-width="0.6em"/></span>
+            <Transition name="swap" mode="out-in">
+              <span :key="cpuSummary" class="ml-auto t-note">{{ cpuSummary }}</span>
+            </Transition>
+          </div>
+          <div class="flex gap-3">
+            <TimeChart
+                :key="`cpu-${history?.range}`"
+                :loading="!history"
+                class="min-w-0 flex-1"
+                :points="points"
+                :from="span.from"
+                :to="span.to"
+                :series="[{key: 'cpu', label: 'Processor', color: CPU_COLOR}]"
+                :max="100"
+                :height="128"
+                :step-seconds="history?.stepSeconds || 10"
+                :format="pct"
+                :label="`Processor use over the last ${range === '24h' ? '24 hours' : 'hour'}, 0 to 100 percent. ${cpuSummary}`"
+            />
+            <div class="relative w-[4.5rem] shrink-0 text-[0.6875rem] tabular-nums text-faint" aria-hidden="true">
+              <span class="absolute -top-1.5">100%</span>
+              <span class="absolute top-1/2 -translate-y-1/2">50%</span>
+              <span class="absolute -bottom-1.5">0%</span>
+            </div>
+          </div>
+          <div class="mr-[5.25rem] flex h-4 justify-between text-[0.6875rem] text-faint" aria-hidden="true">
+            <span v-for="text in xLabels" :key="text">{{ text }}</span>
+          </div>
+        </div>
 
-      <!-- Network. Two traces share one row because in and out are one story. -->
-      <div class="flex items-center gap-4 px-4 py-3.5">
-        <span class="w-20 shrink-0 t-body">Network</span>
-        <span class="relative h-7 min-w-0 flex-1">
-          <span class="absolute inset-0"><Sparkline :values="rxHistory" :height="26" tone="var(--text-dim)"/></span>
-          <span class="absolute inset-0"><Sparkline :values="txHistory" :height="26" tone="var(--line)"/></span>
-        </span>
-        <span class="w-[4.75rem] shrink-0 text-right">
-          <span class="t-read block text-[0.95rem] leading-tight text-ink">{{ formatBytes(rx) }}/s</span>
-          <span class="t-read block text-[0.75rem] leading-tight text-faint">{{ formatBytes(tx) }}/s</span>
-        </span>
-      </div>
-
-      <div
-          v-if="metrics.network?.interfaces?.length"
-          class="flex flex-wrap gap-x-5 gap-y-1 px-4 py-3 t-note"
-      >
-        <span v-for="iface in metrics.network.interfaces" :key="iface.name" class="t-read">
-          {{ iface.name }} {{ formatBytes(iface.rxRateBytesPerSecond) }}/s in
-        </span>
+        <!-- Network -->
+        <div class="flex min-w-0 flex-col gap-3 px-5 pb-4 pt-4">
+          <div class="flex min-h-7 flex-wrap items-center gap-x-4 gap-y-1">
+            <span class="t-body">Network</span>
+            <span class="flex items-center gap-1.5 text-[0.875rem] text-dim">
+              <span class="h-2.5 w-2.5 rounded-[3px]" :style="{background: CPU_COLOR}"></span>
+              Down <span class="font-semibold text-ink">{{ rate(rx) }}</span>
+            </span>
+            <span class="flex items-center gap-1.5 text-[0.875rem] text-dim">
+              <span class="h-2.5 w-2.5 rounded-[3px]" :style="{background: UP_COLOR}"></span>
+              Up <span class="font-semibold text-ink">{{ rate(tx) }}</span>
+            </span>
+            <span v-if="stats.rxPeak" class="ml-auto t-note">peak {{ rate(stats.rxPeak) }} down</span>
+          </div>
+          <div class="flex gap-3">
+            <TimeChart
+                :key="`net-${history?.range}`"
+                :loading="!history"
+                class="min-w-0 flex-1"
+                layout="mirror"
+                :points="points"
+                :from="span.from"
+                :to="span.to"
+                :series="[{key: 'rx', label: 'Down', color: CPU_COLOR}, {key: 'tx', label: 'Up', color: UP_COLOR}]"
+                :max="netMax"
+                :height="128"
+                :step-seconds="history?.stepSeconds || 10"
+                :format="rate"
+                :label="`Network traffic over the last ${range === '24h' ? '24 hours' : 'hour'}: download above the line, upload below, same scale.`"
+            />
+            <div class="relative w-[4.5rem] shrink-0 text-[0.6875rem] tabular-nums text-faint" aria-hidden="true">
+              <span class="absolute -top-1.5 whitespace-nowrap">{{ rate(netMax) }}</span>
+              <span class="absolute top-1/2 -translate-y-1/2">0</span>
+              <span class="absolute -bottom-1.5 whitespace-nowrap">{{ rate(netMax) }}</span>
+            </div>
+          </div>
+          <div class="mr-[5.25rem] flex h-4 justify-between text-[0.6875rem] text-faint" aria-hidden="true">
+            <span v-for="text in xLabels" :key="text">{{ text }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -131,7 +275,7 @@ const tx = computed(() => props.metrics?.network?.totalTxRateBytesPerSecond);
     <div v-else-if="fallback?.configured" class="panel p-4">
       <div class="flex items-baseline justify-between gap-4">
         <span class="t-body">{{ fallback.label }}</span>
-        <span class="t-read text-[1.4rem] text-ink">{{ fallback.usedPercent ?? 0 }}%</span>
+        <span class="text-[1.4rem] font-semibold text-ink">{{ fallback.usedPercent ?? 0 }}%</span>
       </div>
       <span class="well mt-3 block h-2 overflow-hidden rounded-full">
         <span
@@ -139,7 +283,7 @@ const tx = computed(() => props.metrics?.network?.totalTxRateBytesPerSecond);
             :style="{width: `${fallback.usedPercent || 0}%`}"
         ></span>
       </span>
-      <p class="mt-2.5 t-note t-read">
+      <p class="mt-2.5 t-note">
         {{ formatBytes(fallback.usedBytes) }} of {{ formatBytes(fallback.totalBytes) }}
       </p>
     </div>
@@ -147,9 +291,15 @@ const tx = computed(() => props.metrics?.network?.totalTxRateBytesPerSecond);
     <div v-else class="panel p-5">
       <p class="t-body text-ink">NAS metrics are off.</p>
       <p class="mt-1.5 t-note">
-        Set <span class="t-read text-dim">NAS_METRICS_MODE=snmp</span> and
-        <span class="t-read text-dim">NAS_SNMP_HOST</span> to read CPU, memory, storage and network.
+        Set <span class="text-dim">NAS_METRICS_MODE=snmp</span> and
+        <span class="text-dim">NAS_SNMP_HOST</span> to read processor, memory, storage and network.
       </p>
     </div>
   </section>
 </template>
+
+<style scoped>
+.status-dot {
+  transition: background-color 300ms var(--ease), box-shadow 300ms var(--ease);
+}
+</style>

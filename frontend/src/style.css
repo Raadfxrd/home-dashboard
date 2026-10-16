@@ -44,6 +44,16 @@
 	--fault: rgb(var(--fault-rgb));
 	--accent: rgb(var(--accent-rgb));
 
+	/* Glass: a faint light fill over whatever is behind, blurred, with a
+	   hairline edge catching the light at the top. */
+	--glass-fill: rgb(255 255 255 / 0.055);
+	--glass-fill-hover: rgb(255 255 255 / 0.085);
+	--glass-edge: rgb(255 255 255 / 0.075);
+	--glass-blur: blur(28px) saturate(170%);
+	/* For things that float above other content: denser, so text on
+	   them always reads. */
+	--glass-float: rgb(38 38 42 / 0.74);
+
 	--r-lg: 16px;
 	--r-md: 10px;
 	--r-sm: 7px;
@@ -82,16 +92,47 @@ body {
 
 @layer components {
 	/* ---- Surfaces -------------------------------------------------
-	   Exactly one elevation. Panels sit on the base; wells sink into it.
-	   Nothing translucent ever nests inside anything translucent. */
+	   Frosted glass: a neutral frost that blurs the weather behind it.
+	   Panels and cards share one material; wells sink into it. */
 
-	.panel {
-		background: var(--raised);
+	.panel,
+	.glass {
+		background: var(--glass-fill);
 		border-radius: var(--r-lg);
+		box-shadow: inset 0 0 0 1px var(--glass-edge), inset 0 1px 0 rgb(255 255 255 / 0.04);
+		-webkit-backdrop-filter: var(--glass-blur);
+		backdrop-filter: var(--glass-blur);
+	}
+
+	.glass {
+		border-radius: var(--r-md);
+	}
+
+	/* Over the weather animation a live blur would be recomputed every
+	   frame for every card, which makes the animation stutter. There the
+	   glass is a denser tint instead: the weather still shows through,
+	   softly, at no cost. */
+	.over-weather {
+		--glass-fill-hover: rgb(38 38 42 / 0.82);
+	}
+
+	.over-weather .panel,
+	.over-weather .glass {
+		background: rgb(24 24 27 / 0.72);
+		-webkit-backdrop-filter: none;
+		backdrop-filter: none;
+	}
+
+	/* Floating layers: popovers and the detail sheet. */
+	.glass-float {
+		background: var(--glass-float);
+		box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.09), 0 24px 70px rgb(0 0 0 / 0.55);
+		-webkit-backdrop-filter: blur(40px) saturate(180%);
+		backdrop-filter: blur(40px) saturate(180%);
 	}
 
 	.well {
-		background: var(--sunk);
+		background: rgb(0 0 0 / 0.28);
 		border-radius: var(--r-md);
 	}
 
@@ -255,6 +296,42 @@ body {
 	animation: settle 460ms var(--ease) both;
 }
 
+/* Placeholders shaped like what is coming, so nothing jumps when it lands.
+   A soft highlight passes over them; with reduced motion they hold still.
+   Only shown on the first load; refreshes keep the last data on screen. */
+.skeleton {
+	position: relative;
+	overflow: hidden;
+	background: rgb(var(--line-soft-rgb) / 0.75);
+	border-radius: 6px;
+}
+
+.skeleton::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	transform: translateX(-100%);
+	background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.06), transparent);
+	animation: shimmer 1.6s var(--ease) infinite;
+}
+
+@keyframes shimmer {
+	to {
+		transform: translateX(100%);
+	}
+}
+
+/* Real content replacing a placeholder eases in rather than popping. */
+.reveal {
+	animation: reveal 280ms var(--ease) both;
+}
+
+@keyframes reveal {
+	from {
+		opacity: 0;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
@@ -272,6 +349,14 @@ body {
 		backdrop-filter: none;
 		-webkit-backdrop-filter: none;
 	}
+
+	.panel,
+	.glass,
+	.glass-float {
+		background: var(--raised);
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
 }
 
 @media (prefers-contrast: more) {
@@ -280,5 +365,33 @@ body {
 		--line-soft-rgb: 72 72 74;
 		--text-dim-rgb: 174 174 178;
 		--text-faint-rgb: 142 142 147;
+	}
+}
+
+/* A quiet crossfade for text that changes in place (a status, a summary). */
+.swap-enter-active,
+.swap-leave-active {
+	transition: opacity 160ms var(--ease), transform 220ms var(--ease);
+}
+
+.swap-enter-from {
+	opacity: 0;
+	transform: translateY(3px);
+}
+
+.swap-leave-to {
+	opacity: 0;
+	transform: translateY(-3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.swap-enter-active,
+	.swap-leave-active {
+		transition: opacity 120ms linear;
+	}
+
+	.swap-enter-from,
+	.swap-leave-to {
+		transform: none;
 	}
 }

@@ -11,12 +11,19 @@ const envCandidates = [
 const envPath = envCandidates.find((candidate) => fs.existsSync(candidate));
 dotenv.config(envPath ? {path: envPath} : undefined);
 
+const issueLog = require('./lib/issueLog');
+// Before anything else logs, so every warning and error is collected.
+issueLog.install();
+
 const express = require('express');
 const cors = require('cors');
 
 const weatherRoutes = require('./routes/weather');
 const homeRoutes = require('./routes/home');
 const jellyfinRoutes = require('./routes/jellyfin');
+const upcomingRoutes = require('./routes/upcoming');
+const containerRoutes = require('./routes/containers');
+const calendarRoutes = require('./routes/calendar');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -28,9 +35,39 @@ app.get('/api/health', (_req, res) => {
 	res.json({status: 'ok', timestamp: new Date().toISOString()});
 });
 
+// What went wrong recently, for the log in the dashboard's bottom bar.
+/* Settings the page reads at start. IDLE_AFTER_MINUTES sets the idle
+   screen's timeout; 0 or "off" turns the idle screen off. */
+app.get('/api/config', (_req, res) => {
+	const raw = String(process.env.IDLE_AFTER_MINUTES ?? '5').trim();
+	const minutes = /^(0|off|false|no)$/i.test(raw) ? null : Number(raw);
+	res.json({idleAfterMinutes: Number.isFinite(minutes) && minutes > 0 ? minutes : null});
+});
+
+app.get('/api/logs', (_req, res) => {
+	res.json({entries: issueLog.list(), clearedAt: issueLog.clearedAt()});
+});
+app.post('/api/logs/clear', (_req, res) => {
+	issueLog.clear();
+	res.json({ok: true});
+});
+
 app.use('/api/weather', weatherRoutes);
 app.use('/api/home', homeRoutes);
 app.use('/api/jellyfin', jellyfinRoutes);
+app.use('/api/upcoming', upcomingRoutes);
+app.use('/api/containers', containerRoutes);
+app.use('/api/calendar', calendarRoutes);
+
+// In the Docker image the built frontend sits next to the server, so one
+// container serves both. In dev, Vite serves the frontend and this is skipped.
+const staticDir = process.env.STATIC_DIR || path.resolve(__dirname, 'public');
+if (fs.existsSync(path.join(staticDir, 'index.html'))) {
+	app.use(express.static(staticDir, {index: false, maxAge: '1h'}));
+	app.get(/^(?!\/api\/).*/, (_req, res) => {
+		res.sendFile(path.join(staticDir, 'index.html'));
+	});
+}
 
 app.use((_req, res) => {
 	res.status(404).json({error: 'Not found'});

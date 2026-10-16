@@ -177,8 +177,8 @@ onUnmounted(() => {
 
     <div v-if="isLoading" class="flex gap-3 overflow-hidden">
       <div v-for="i in 8" :key="i" class="w-[7.5rem] flex-none sm:w-[8.5rem]">
-        <div class="well aspect-[2/3] animate-pulse"></div>
-        <div class="mt-2 h-3 w-4/5 animate-pulse rounded bg-line-soft"></div>
+        <div class="well skeleton aspect-[2/3]"></div>
+        <div class="skeleton mt-2 h-3 w-4/5"></div>
       </div>
     </div>
 

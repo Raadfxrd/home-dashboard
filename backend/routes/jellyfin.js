@@ -62,6 +62,9 @@ function isCollectionLike(item) {
 
 function jellyfinHeaders() {
 	return {
+		// Current Jellyfin expects the standard Authorization header; the
+		// legacy ones are kept for older servers.
+		Authorization: `MediaBrowser Token="${JELLYFIN_API_KEY}"`,
 		'X-MediaBrowser-Token': JELLYFIN_API_KEY,
 		'X-Emby-Authorization': `MediaBrowser Token="${JELLYFIN_API_KEY}"`,
 	};
@@ -149,9 +152,10 @@ async function mapWithConcurrency(items = [], limit = 3, mapper) {
 }
 
 async function fetchLatestEpisodeForSeries(userId, seriesId) {
-	const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+	const response = await axios.get(`${JELLYFIN_URL}/Items`, {
 		headers: jellyfinHeaders(),
 		params: {
+			userId,
 			ParentId: seriesId,
 			Recursive: true,
 			IncludeItemTypes: 'Episode',
@@ -295,9 +299,10 @@ router.get('/suggested', async (req, res) => {
 		}
 
 		const [historyResponse, libraryResponse, tmdbTitles] = await Promise.all([
-			axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			axios.get(`${JELLYFIN_URL}/Items`, {
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Recursive: true,
 					Limit: 60,
 					IncludeItemTypes: historyTypes,
@@ -309,9 +314,10 @@ router.get('/suggested', async (req, res) => {
 					EnableImages: true,
 				},
 			}),
-			axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			axios.get(`${JELLYFIN_URL}/Items`, {
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Recursive: true,
 					Limit: 800,
 					IncludeItemTypes: libraryTypes,
@@ -420,10 +426,11 @@ router.get('/continue', async (_req, res) => {
 		}
 
 		const response = await axios.get(
-			`${JELLYFIN_URL}/Users/${userId}/Items/Resume`,
+			`${JELLYFIN_URL}/Items/Resume`,
 			{
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Limit: 12,
 					Fields: 'PrimaryImageAspectRatio,UserData,ProviderIds',
 					Recursive: true,
@@ -473,10 +480,11 @@ router.get('/recent', async (_req, res) => {
 		}
 
 		const response = await axios.get(
-			`${JELLYFIN_URL}/Users/${userId}/Items/Latest`,
+			`${JELLYFIN_URL}/Items/Latest`,
 			{
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Limit: 16,
 					Fields: 'PrimaryImageAspectRatio,ProviderIds,SeriesId,SeriesName,ParentId,ParentIndexNumber,IndexNumber',
 					Recursive: true,
@@ -491,9 +499,10 @@ router.get('/recent', async (_req, res) => {
 
 		if (!items.length) {
 			logJellyfin('recent.latest_empty_fallback_start');
-			const fallbackResponse = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+			const fallbackResponse = await axios.get(`${JELLYFIN_URL}/Items`, {
 				headers: jellyfinHeaders(),
 				params: {
+					userId,
 					Limit: 16,
 					Recursive: true,
 					SortBy: 'DateCreated',
@@ -547,6 +556,169 @@ router.get('/recent', async (_req, res) => {
 	}
 });
 
+/* Who is watching what right now. Each session says how it is being
+   played (direct or transcoded) and where it comes from, so a stream that
+   runs through Tailscale (100.x addresses) instead of the local network is
+   easy to spot. */
+function describeAddress(address = '') {
+	const ip = String(address).replace(/^::ffff:/, '').split(':')[0];
+	if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return {ip, network: 'tailscale'};
+	if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.)/.test(ip)) return {ip, network: 'local'};
+	return {ip, network: ip ? 'remote' : null};
+}
+
+function episodeCode(item) {
+	if (item.Type !== 'Episode') return null;
+	const s = Number(item.ParentIndexNumber);
+	const e = Number(item.IndexNumber);
+	if (!Number.isFinite(s) || !Number.isFinite(e)) return null;
+	return `S${String(s).padStart(2, '0')}E${String(e).padStart(2, '0')}`;
+}
+
+const TRANSCODE_REASONS = {
+	ContainerNotSupported: 'the file container isn\'t supported by the player',
+	VideoCodecNotSupported: 'the video codec isn\'t supported by the player',
+	AudioCodecNotSupported: 'the audio codec isn\'t supported by the player',
+	SubtitleCodecNotSupported: 'the subtitles have to be burned in',
+	ContainerBitrateExceedsLimit: 'the bitrate is above the player\'s limit',
+	VideoBitrateNotSupported: 'the video bitrate is above the player\'s limit',
+	AudioBitrateNotSupported: 'the audio bitrate is above the player\'s limit',
+	VideoResolutionNotSupported: 'the resolution is above the player\'s limit',
+	VideoLevelNotSupported: 'the video level isn\'t supported',
+	VideoProfileNotSupported: 'the video profile isn\'t supported',
+	VideoRangeTypeNotSupported: 'HDR isn\'t supported by the player',
+	AudioChannelsNotSupported: 'the player can\'t take that many audio channels',
+	DirectPlayError: 'direct play failed',
+};
+
+function resolution(stream) {
+	const w = Number(stream?.Width) || 0;
+	const h = Number(stream?.Height) || 0;
+	if (w >= 3800 || h >= 2100) return '4K';
+	if (w >= 2500 || h >= 1400) return '1440p';
+	if (w >= 1900 || h >= 1000) return '1080p';
+	if (w >= 1200 || h >= 700) return '720p';
+	return h ? `${h}p` : null;
+}
+
+/* The parts of a session worth a second look: picture, sound, subtitles,
+   bitrate and, when transcoding, the reason in plain words. */
+function streamDetails(session) {
+	const item = session.NowPlayingItem || {};
+	const state = session.PlayState || {};
+	const t = session.TranscodingInfo || null;
+	const streams = item.MediaStreams || [];
+	const video = streams.find((s) => s.Type === 'Video');
+	const audio = streams.find((s) => s.Type === 'Audio' && s.Index === state.AudioStreamIndex) || streams.find((s) => s.Type === 'Audio' && s.IsDefault);
+	const subtitle = Number.isInteger(state.SubtitleStreamIndex) && state.SubtitleStreamIndex >= 0
+		? streams.find((s) => s.Type === 'Subtitle' && s.Index === state.SubtitleStreamIndex)
+		: null;
+	const range = video?.VideoRangeType && video.VideoRangeType !== 'SDR' ? video.VideoRangeType.replace('DOVI', 'Dolby Vision') : null;
+	return {
+		overview: item.Overview || null,
+		genres: item.Genres || [],
+		rating: item.CommunityRating ? Math.round(item.CommunityRating * 10) / 10 : null,
+		certification: item.OfficialRating || null,
+		video: video ? [resolution(video), String(video.Codec || '').toUpperCase(), range].filter(Boolean).join(' · ') : null,
+		audio: audio ? audio.DisplayTitle || [audio.Language, audio.Codec].filter(Boolean).join(' ') : null,
+		subtitles: subtitle ? subtitle.DisplayTitle || subtitle.Language || 'On' : 'Off',
+		bitrateMbps: t?.Bitrate ? Math.round(t.Bitrate / 1e5) / 10 : null,
+		transcodeReasons: (t?.TranscodeReasons || []).map((r) => TRANSCODE_REASONS[r] || r),
+		videoDirect: t ? Boolean(t.IsVideoDirect) : true,
+		audioDirect: t ? Boolean(t.IsAudioDirect) : true,
+		hardware: t?.HardwareAccelerationType || null,
+		app: [session.Client, session.ApplicationVersion].filter(Boolean).join(' '),
+	};
+}
+
+router.get('/now-playing', async (_req, res) => {
+	if (!JELLYFIN_API_KEY) {
+		return res.json({configured: false, sessions: []});
+	}
+	try {
+		const response = await axios.get(`${JELLYFIN_URL}/Sessions`, {
+			headers: jellyfinHeaders(),
+			params: {activeWithinSeconds: 960},
+			timeout: 8000,
+		});
+		const sessions = (response.data || [])
+			.filter((session) => session.NowPlayingItem)
+			.map((session) => {
+				const item = session.NowPlayingItem;
+				const state = session.PlayState || {};
+				const runtime = Number(item.RunTimeTicks) || 0;
+				const position = Number(state.PositionTicks) || 0;
+				const isEpisode = item.Type === 'Episode';
+				return {
+					id: session.Id,
+					user: session.UserName || null,
+					device: session.DeviceName || null,
+					client: session.Client || null,
+					title: isEpisode ? item.SeriesName || item.Name : item.Name,
+					subtitle: isEpisode ? [episodeCode(item), item.Name].filter(Boolean).join(' · ') : item.ProductionYear ? String(item.ProductionYear) : null,
+					poster: buildPosterUrl(isEpisode && item.SeriesId ? item.SeriesId : item.Id),
+					url: buildDetailsUrl(item.Id),
+					progress: runtime > 0 ? Math.min(100, Math.round((position / runtime) * 1000) / 10) : 0,
+					positionSeconds: Math.round(position / 1e7),
+					runtimeSeconds: Math.round(runtime / 1e7),
+					paused: Boolean(state.IsPaused),
+					playMethod: state.PlayMethod || null,
+					...describeAddress(session.RemoteEndPoint),
+					details: streamDetails(session),
+				};
+			});
+		res.json({configured: true, sessions});
+	} catch (err) {
+		console.error('Jellyfin now playing error:', getErrorDetails(err));
+		res.status(502).json({error: 'Failed to fetch Jellyfin sessions'});
+	}
+});
+
+/* One title's details for the detail panel: synopsis, people, runtime,
+   ratings and where you are in it. */
+router.get('/item/:id', async (req, res) => {
+	const id = String(req.params.id || '');
+	if (!/^[a-f0-9-]{32,36}$/i.test(id)) return res.status(400).json({error: 'Unknown item'});
+	if (!JELLYFIN_API_KEY) return res.status(503).json({error: 'Jellyfin is not configured'});
+	try {
+		const userId = await getResolvedUserId();
+		const {data: item} = await axios.get(`${JELLYFIN_URL}/Items/${id}`, {
+			headers: jellyfinHeaders(),
+			params: {userId},
+			timeout: 8000,
+		});
+		const people = item.People || [];
+		const runtimeMin = item.RunTimeTicks ? Math.round(item.RunTimeTicks / 6e8) : null;
+		const position = item.UserData?.PlaybackPositionTicks || 0;
+		res.json({
+			id: item.Id,
+			type: item.Type,
+			title: item.Name,
+			tagline: item.Taglines?.[0] || null,
+			overview: item.Overview || null,
+			year: item.ProductionYear || null,
+			endYear: item.EndDate ? new Date(item.EndDate).getFullYear() : null,
+			status: item.Status || null,
+			genres: item.Genres || [],
+			rating: item.CommunityRating ? Math.round(item.CommunityRating * 10) / 10 : null,
+			criticRating: item.CriticRating ?? null,
+			certification: item.OfficialRating || null,
+			runtimeMin,
+			seasons: item.Type === 'Series' ? item.ChildCount ?? null : null,
+			studios: (item.Studios || []).map((s) => s.Name).slice(0, 3),
+			directors: people.filter((p) => p.Type === 'Director').map((p) => p.Name).slice(0, 2),
+			cast: people.filter((p) => p.Type === 'Actor').map((p) => p.Name).slice(0, 6),
+			played: Boolean(item.UserData?.Played),
+			progress: item.RunTimeTicks && position ? Math.round((position / item.RunTimeTicks) * 100) : 0,
+			poster: buildPosterUrl(item.Id),
+			url: buildDetailsUrl(item.Id),
+		});
+	} catch (err) {
+		console.error('Jellyfin item error:', getErrorDetails(err));
+		res.status(502).json({error: 'Failed to load this title from Jellyfin'});
+	}
+});
+
 router.get('/library', async (req, res) => {
 	if (!JELLYFIN_API_KEY || !JELLYFIN_USER_ID) {
 		return res.status(503).json({error: 'Jellyfin API key or user is not configured'});
@@ -565,6 +737,7 @@ router.get('/library', async (req, res) => {
 	const sortOrder = sortOrderParam === 'desc' ? 'Descending' : 'Ascending';
 	const startIndex = Math.max(0, parseInt(req.query.startIndex || '0', 10) || 0);
 	const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '48', 10) || 48));
+	const wantAll = req.query.all === '1' || req.query.all === 'true';
 
 	try {
 		const userId = await getResolvedUserId();
@@ -572,9 +745,50 @@ router.get('/library', async (req, res) => {
 			return res.status(502).json({error: 'Failed to resolve Jellyfin user ID'});
 		}
 
-		const response = await axios.get(`${JELLYFIN_URL}/Users/${userId}/Items`, {
+		if (wantAll) {
+			/* The whole library in one answer, read in big pages with a stable
+			   order (name, then id) so nothing is skipped or repeated. Sorting
+			   for display happens in the browser. */
+			const all = [];
+			const PAGE = 500;
+			for (let start = 0; ; start += PAGE) {
+				const page = await axios.get(`${JELLYFIN_URL}/Items`, {
+					headers: jellyfinHeaders(),
+					params: {
+						userId,
+						Recursive: true,
+						StartIndex: start,
+						Limit: PAGE,
+						SortBy: 'SortName,Id',
+						SortOrder: 'Ascending',
+						IncludeItemTypes: includeItemTypes,
+						ExcludeItemTypes: isShowQuery ? undefined : 'BoxSet,CollectionFolder',
+						Filters: isShowQuery ? undefined : 'IsNotFolder',
+						Fields: 'PrimaryImageAspectRatio,ProductionYear,ProviderIds,DateCreated,SortName',
+						ImageTypeLimit: 1,
+						EnableImages: true,
+					},
+				});
+				const batch = page.data?.Items || [];
+				all.push(...batch);
+				const reported = page.data?.TotalRecordCount;
+				if (batch.length < PAGE || (Number.isFinite(reported) && all.length >= reported)) break;
+			}
+			const seen = new Set();
+			const items = all
+				.filter((item) => (seen.has(item.Id) ? false : seen.add(item.Id)))
+				.map((item) => ({
+					...mapItem(item, 0),
+					sortName: item.SortName || item.Name || '',
+					added: item.DateCreated || null,
+				}));
+			return res.json({items, total: items.length, startIndex: 0, limit: items.length, hasMore: false});
+		}
+
+		const response = await axios.get(`${JELLYFIN_URL}/Items`, {
 			headers: jellyfinHeaders(),
 			params: {
+				userId,
 				Recursive: true,
 				StartIndex: startIndex,
 				Limit: limit,
