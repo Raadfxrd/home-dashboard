@@ -275,6 +275,11 @@ function demoOutlook() {
 		day: dayMm.map((mm, n) => ({time: h(n), mm, rainChance: dayChance[n]})),
 		hours: blocks.slice(0, 5),
 		blocks,
+		// Five days: the first day repeated with a slow warm-up.
+		week: Array.from({length: 40}, (_, n) => {
+			const b = blocks[n % 8];
+			return {...b, at: firstAt.getTime() + n * 3 * 3600000, temperature: b.temperature + Math.floor(n / 8), feelsLike: b.feelsLike + Math.floor(n / 8)};
+		}),
 	};
 }
 

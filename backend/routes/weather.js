@@ -77,17 +77,18 @@ async function fetchCurrent(loc) {
   });
 }
 
-/* The next 24 hours in OpenWeather's 3-hour steps: the first five feed the
-   forecast tiles, all eight feed the whole-day rain view. Rain and snow are
+/* The next 5 days in OpenWeather's 3-hour steps (40 blocks): the first five
+   feed the forecast tiles, the first eight the whole-day rain view, and all
+   of them the weather for calendar events later in the week. Rain and snow are
    given per 3 hours, so they're turned into an average mm/h like the radar. */
 async function fetchHours(loc) {
-  return cached(`hours_${loc.key}`, 1200, async () => {
+  return cached(`hours5d_${loc.key}`, 1200, async () => {
     const response = await axios.get(`${OWM}/forecast`, {
-      params: { ...loc.params, appid: API_KEY, units: 'metric', cnt: 8 },
+      params: { ...loc.params, appid: API_KEY, units: 'metric', cnt: 40 },
       timeout: HTTP_TIMEOUT_MS,
     });
     const offset = response.data?.city?.timezone ?? 0;
-    return (response.data?.list || []).slice(0, 8).map((entry) => {
+    return (response.data?.list || []).map((entry) => {
       const mm3h = (Number(entry.rain?.['3h']) || 0) + (Number(entry.snow?.['3h']) || 0);
       const round = (v) => (Number.isFinite(v) ? Math.round(v) : null);
       return {
@@ -250,9 +251,11 @@ router.get('/outlook', async (req, res) => {
 
   res.json({
     hours: hours.slice(0, 5),
-    day: hours.map(({ time, mm, rainChance }) => ({ time, mm, rainChance })),
-    // All eight blocks in full, for what-to-wear and the forecast details.
-    blocks: hours,
+    day: hours.slice(0, 8).map(({ time, mm, rainChance }) => ({ time, mm, rainChance })),
+    // The next 24 hours in full, for what-to-wear and the forecast details.
+    blocks: hours.slice(0, 8),
+    // The whole 5 days, for events later in the week.
+    week: hours,
     rain,
   });
 });

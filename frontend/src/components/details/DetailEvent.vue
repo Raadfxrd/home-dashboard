@@ -40,6 +40,8 @@ const weatherRows = computed(() => {
   ];
 });
 
+const day = computed(() => new Intl.DateTimeFormat('en-GB', {weekday: 'long'}).format(new Date(e.value.start)));
+
 const mapsUrl = computed(() => (e.value.location ? `https://maps.apple.com/?q=${encodeURIComponent(e.value.location)}` : null));
 </script>
 
@@ -64,6 +66,6 @@ const mapsUrl = computed(() => (e.value.location ? `https://maps.apple.com/?q=${
       <h3 class="mb-3 mt-5 text-[0.8125rem] font-semibold text-dim">What to wear</h3>
       <OutfitList :outfit="plan.outfit"/>
     </template>
-    <p v-else-if="e.out" class="mt-6 t-note">The forecast doesn't reach this far yet.</p>
+    <p v-else-if="e.out" class="mt-6 t-note">Weather and what to wear show up here once {{ day }} is within the 5-day forecast.</p>
   </article>
 </template>

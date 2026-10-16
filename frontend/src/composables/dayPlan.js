@@ -34,7 +34,7 @@ function fromCurrent(here) {
 export function samplesFor(start, end, {here, outlook}, now = Date.now()) {
 	const samples = [];
 	// Forecast blocks are 3 hours wide, centred on their time.
-	for (const b of outlook?.blocks || []) {
+	for (const b of outlook?.week || outlook?.blocks || []) {
 		if (b.at + 1.5 * HOUR >= start && b.at - 1.5 * HOUR <= end) samples.push({...b, source: 'forecast'});
 	}
 	if (start <= now + 1.5 * HOUR) {
