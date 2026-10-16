@@ -87,6 +87,18 @@ async function fetchRadarr({start, end}) {
 	return items;
 }
 
+/* Why a service couldn't be reached, in words that say what to fix. */
+function reason(err, url) {
+	const status = err.response?.status;
+	if (status === 401 || status === 403) return 'API key rejected';
+	if (status === 404) return 'not found at this address';
+	if (status) return `answered HTTP ${status}`;
+	if (err.code === 'ECONNREFUSED') return `nothing answering at ${url.replace(/^https?:\/\//, '')}`;
+	if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message)) return 'timed out';
+	if (err.code === 'ENOTFOUND' || err.code === 'EAI_AGAIN') return 'address not found';
+	return err.message;
+}
+
 router.get('/', async (_req, res) => {
 	const configured = {
 		sonarr: Boolean(SONARR_URL && SONARR_API_KEY),
@@ -104,15 +116,17 @@ router.get('/', async (_req, res) => {
 	const [episodes, movies] = await Promise.all([
 		configured.sonarr
 			? fetchSonarr(span).catch((err) => {
-				console.error('Sonarr calendar error:', err.message);
-				failed.push('sonarr');
+				const why = reason(err, SONARR_URL);
+				console.error('Sonarr calendar error:', why);
+				failed.push({service: 'sonarr', reason: why});
 				return [];
 			})
 			: [],
 		configured.radarr
 			? fetchRadarr(span).catch((err) => {
-				console.error('Radarr calendar error:', err.message);
-				failed.push('radarr');
+				const why = reason(err, RADARR_URL);
+				console.error('Radarr calendar error:', why);
+				failed.push({service: 'radarr', reason: why});
 				return [];
 			})
 			: [],

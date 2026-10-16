@@ -52,12 +52,15 @@ const days = computed(() => {
 
 const busyDays = computed(() => days.value.filter((d) => d.items.length));
 
-const failedText = computed(() => {
-  const failed = props.data?.failed || [];
-  if (!failed.length) return '';
-  const names = failed.map((f) => (f === 'sonarr' ? 'Sonarr' : 'Radarr')).join(' and ');
-  return `Couldn't reach ${names}.`;
-});
+const failures = computed(() =>
+  (props.data?.failed || []).map((f) => {
+    const service = typeof f === 'string' ? f : f.service;
+    return {
+      key: service,
+      text: `${service === 'sonarr' ? 'Sonarr' : 'Radarr'}: ${typeof f === 'string' ? "couldn't connect" : f.reason}`,
+    };
+  })
+);
 </script>
 
 <template>
@@ -90,14 +93,16 @@ const failedText = computed(() => {
     </div>
 
     <div v-else class="reveal panel">
-      <p v-if="failedText" class="flex items-center gap-2 border-b border-line-soft px-4 py-2.5 t-note"><span class="dot dot-warn"></span>{{ failedText }}</p>
+      <ul v-if="failures.length" class="flex flex-col gap-1 border-b border-line-soft px-4 py-2.5">
+        <li v-for="f in failures" :key="f.key" class="flex items-center gap-2 t-note"><span class="dot dot-warn"></span>{{ f.text }}</li>
+      </ul>
 
       <!-- Wide: the week as seven columns. -->
       <div class="hidden divide-x divide-line-soft lg:grid" :style="{gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))`}">
         <div v-for="day in days" :key="day.key" class="min-w-0 px-3 pb-4 pt-3">
           <h3 class="mb-2 truncate text-[0.75rem] font-semibold" :class="day.label === 'Today' ? 'text-ink' : 'text-dim'">{{ day.short }}</h3>
           <p v-if="!day.items.length" class="text-[0.75rem] text-faint">–</p>
-          <ul class="flex flex-col gap-3">
+          <ul v-if="day.items.length" class="flex flex-col gap-3">
             <li v-for="item in day.items" :key="item.id" class="flex min-w-0 gap-2.5" :title="`${item.title} · ${item.subtitle}`">
               <span class="well aspect-[2/3] w-8 shrink-0 overflow-hidden rounded-[5px]">
                 <img v-if="item.poster" :src="item.poster" alt="" class="h-full w-full object-cover" loading="lazy"/>
