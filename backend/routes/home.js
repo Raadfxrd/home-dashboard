@@ -265,7 +265,8 @@ function shouldTrackInterface(name) {
 	if (NAS_NETWORK_INTERFACES.length > 0) {
 		return NAS_NETWORK_INTERFACES.some((item) => item.toLowerCase() === String(name).toLowerCase());
 	}
-	return !/^(lo|loopback|docker|veth|br-|zt|tun|tap)/i.test(String(name));
+	// Virtual links (containers, VPNs) would count the same traffic twice.
+	return !/^(lo|loopback|docker|veth|br-|zt|tun|tap|tailscale|wg)/i.test(String(name));
 }
 
 function mapDiskUsageFromStorage(rows) {

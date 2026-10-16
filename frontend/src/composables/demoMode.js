@@ -253,8 +253,11 @@ function demoOutlook() {
 			? `Heavy rain until about ${slots[lastWet + 1].time}`
 			: `Light rain from about ${slots[firstWet].time}, dry again by ${slots[lastWet + 1].time}`;
 	const h = (n) => `${String((Math.floor(base / 60) + 3 * n) % 24).padStart(2, '0')}:00`;
+	const dayMm = raining ? [0.4, 1.1, 0.2, 0, 0, 0, 0.6, 0.3] : [0, 0, 0, 0, 0, 0, 0, 0];
+	const dayChance = raining ? [80, 90, 50, 10, 0, 10, 60, 40] : [0, 0, 10, 0, 0, 0, 10, 0];
 	return {
 		rain: {available: true, slots, summary},
+		day: dayMm.map((mm, n) => ({time: h(n), mm, rainChance: dayChance[n]})),
 		hours: [
 			{time: h(1), temperature: 11, icon: '10n', rainChance: 70},
 			{time: h(2), temperature: 10, icon: '04n', rainChance: 20},

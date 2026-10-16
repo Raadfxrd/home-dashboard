@@ -45,8 +45,9 @@ const meta = computed(() => {
 const rain = computed(() => props.outlook?.rain || null);
 const rainNow = computed(() => rain.value?.slots?.[0]?.mm || 0);
 
-/* How far ahead the rain bars look: 1, 2 or 3 hours (3 only when Buienradar
-   sent that much). Remembered per browser. */
+/* How far ahead the rain bars look: 2 or 3 hours from the radar (5-minute
+   steps; 3 only when Buienradar sent that much), or the next 24 hours from
+   the forecast (3-hour steps). Remembered per browser. */
 const WINDOW_KEY = 'dashboard.rainWindow';
 function readWindow() {
   try {
@@ -64,38 +65,51 @@ watch(rainWindow, (value) => {
   }
 });
 
-const windowOptions = computed(() => {
-  const n = rain.value?.slots?.length || 0;
-  return [
-    {value: '1', label: '1 h'},
-    {value: '2', label: '2 h'},
-    ...(n >= 36 ? [{value: '3', label: '3 h'}] : []),
-  ];
+const radarSlots = computed(() => (rain.value?.available ? rain.value.slots || [] : []));
+const daySlots = computed(() => props.outlook?.day || []);
+const hasRain = computed(() => radarSlots.value.length > 0 || daySlots.value.length > 0);
+
+const windowOptions = computed(() => [
+  ...(radarSlots.value.length >= 24 ? [{value: '2', label: '2 h'}] : []),
+  ...(radarSlots.value.length >= 36 ? [{value: '3', label: '3 h'}] : []),
+  ...(daySlots.value.length ? [{value: '24', label: '24 h'}] : []),
+]);
+
+const activeWindow = computed(() => {
+  const options = windowOptions.value;
+  if (options.some((o) => o.value === rainWindow.value)) return rainWindow.value;
+  return options[0]?.value || '2';
 });
 
-const activeWindow = computed(() =>
-  windowOptions.value.some((o) => o.value === rainWindow.value) ? rainWindow.value : '2'
+const isDay = computed(() => activeWindow.value === '24');
+const sourceSlots = computed(() => (isDay.value ? daySlots.value : radarSlots.value));
+const shownSlots = computed(() =>
+  isDay.value ? daySlots.value : radarSlots.value.slice(0, Number(activeWindow.value) * 12)
 );
-
-const shownSlots = computed(() => (rain.value?.slots || []).slice(0, Number(activeWindow.value) * 12));
-const windowLabel = computed(() => (activeWindow.value === '1' ? 'next hour' : `next ${activeWindow.value} hours`));
-const rainSummary = computed(() => describeRain(shownSlots.value, windowLabel.value) || rain.value?.summary);
+const windowLabel = computed(() => `next ${activeWindow.value} hours`);
+// The day view comes in 3-hour blocks, so one dry block already counts as a break.
+const rainSummary = computed(() =>
+  describeRain(shownSlots.value, windowLabel.value, {minDry: isDay.value ? 1 : 2}) || rain.value?.summary
+);
 
 /* Rain on a log-ish scale so a drizzle still shows and a downpour doesn't
    swamp everything else: 0.1 mm/h is a short bar, 4 mm/h fills the track. */
 const rainBars = computed(() => {
   const shown = shownSlots.value.length;
-  return (rain.value?.slots || []).map((slot, index) => {
+  const slots = sourceSlots.value;
+  return slots.map((slot, index) => {
     const wet = slot.mm >= 0.1;
     const level = wet ? Math.min(1, Math.log10(1 + slot.mm) / Math.log10(5)) : 0;
+    const chance = slot.rainChance != null ? `, ${slot.rainChance}% chance` : '';
+    const span = isDay.value && slots[index + 1] ? `${slot.time}–${slots[index + 1].time}` : slot.time;
     return {
       // Keyed by position, so a refresh animates heights instead of
-      // replacing bars, and a wider window grows the row in place.
+      // replacing bars, and a different window reshapes the row in place.
       key: index,
       wet,
       inWindow: index < shown,
       height: grown.value && wet ? Math.round(6 + level * 50) : 2,
-      label: wet ? `${slot.time}, ${slot.mm.toFixed(1)} mm/h` : `${slot.time}, dry`,
+      label: wet ? `${span}, ${slot.mm.toFixed(1)} mm/h${chance}` : `${span}, dry${chance}`,
     };
   });
 });
@@ -204,7 +218,7 @@ const forecast = computed(() =>
         </div>
 
         <!-- Rain, next hours -->
-        <div v-if="rain?.available" class="reveal">
+        <div v-if="hasRain" class="reveal">
           <div class="flex items-center justify-between gap-4">
             <Transition name="swap" mode="out-in">
               <p :key="rainSummary" class="text-[0.9375rem] font-semibold tracking-[-0.01em] text-ink">{{ rainSummary }}</p>

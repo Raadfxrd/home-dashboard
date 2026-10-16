@@ -4,7 +4,7 @@
 
 const WET = 0.1; // mm/h below this reads as dry
 
-export function describeRain(slots, windowLabel) {
+export function describeRain(slots, windowLabel, {minDry = 2} = {}) {
 	if (!slots?.length) return null;
 	const wet = slots.map((s) => s.mm >= WET);
 	const peak = Math.max(...slots.map((s) => s.mm));
@@ -12,10 +12,10 @@ export function describeRain(slots, windowLabel) {
 
 	if (!wet.some(Boolean)) return `Dry for the ${windowLabel}`;
 
-	// The first moment it stays dry for at least two slots in a row.
+	// The first moment it stays dry for at least `minDry` slots in a row.
 	const dryAgainFrom = (start) => {
-		for (let i = start; i < slots.length - 1; i += 1) {
-			if (!wet[i] && !wet[i + 1]) return i;
+		for (let i = start; i <= slots.length - minDry; i += 1) {
+			if (wet.slice(i, i + minDry).every((w) => !w)) return i;
 		}
 		return wet[slots.length - 1] ? -1 : slots.length - 1;
 	};

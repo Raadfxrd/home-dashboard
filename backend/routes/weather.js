@@ -77,21 +77,28 @@ async function fetchCurrent(loc) {
   });
 }
 
+/* The next 24 hours in OpenWeather's 3-hour steps: the first five feed the
+   forecast tiles, all eight feed the whole-day rain view. Rain and snow are
+   given per 3 hours, so they're turned into an average mm/h like the radar. */
 async function fetchHours(loc) {
   return cached(`hours_${loc.key}`, 1200, async () => {
     const response = await axios.get(`${OWM}/forecast`, {
-      params: { ...loc.params, appid: API_KEY, units: 'metric', cnt: 5 },
+      params: { ...loc.params, appid: API_KEY, units: 'metric', cnt: 8 },
       timeout: HTTP_TIMEOUT_MS,
     });
     const offset = response.data?.city?.timezone ?? 0;
-    return (response.data?.list || []).slice(0, 5).map((entry) => ({
-      time: localTime(entry.dt, offset),
-      temperature: Math.round(entry.main?.temp),
-      icon: entry.weather?.[0]?.icon || null,
-      conditionId: entry.weather?.[0]?.id ?? null,
-      condition: entry.weather?.[0]?.description || null,
-      rainChance: Number.isFinite(entry.pop) ? Math.round(entry.pop * 100) : null,
-    }));
+    return (response.data?.list || []).slice(0, 8).map((entry) => {
+      const mm3h = (Number(entry.rain?.['3h']) || 0) + (Number(entry.snow?.['3h']) || 0);
+      return {
+        time: localTime(entry.dt, offset),
+        temperature: Math.round(entry.main?.temp),
+        icon: entry.weather?.[0]?.icon || null,
+        conditionId: entry.weather?.[0]?.id ?? null,
+        condition: entry.weather?.[0]?.description || null,
+        rainChance: Number.isFinite(entry.pop) ? Math.round(entry.pop * 100) : null,
+        mm: Math.round((mm3h / 3) * 100) / 100,
+      };
+    });
   });
 }
 
@@ -230,7 +237,11 @@ router.get('/outlook', async (req, res) => {
     }),
   ]);
 
-  res.json({ hours, rain });
+  res.json({
+    hours: hours.slice(0, 5),
+    day: hours.map(({ time, mm, rainChance }) => ({ time, mm, rainChance })),
+    rain,
+  });
 });
 
 router._test = { parseRainText, parseRain3Hour, describeRain };
